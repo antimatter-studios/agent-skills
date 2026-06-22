@@ -1,131 +1,147 @@
 ---
-description: Install or upgrade a project-local Claude Code skill from the current repo's `.claude/skills/<name>/` into `~/.claude/skills/<name>/` so it works system-wide. Copies files (does not symlink) and records a manifest so future upgrades can detect when the user has hand-modified the installed copy. Use when the user says "install this skill", "promote skill to user level", "upgrade my installed <name> skill", or similar.
+description: Install or upgrade a skill into the user-level skills directory (`~/.claude/skills/<name>/`) so it works across all projects. Resolves the skill's source from the current repo, a registered source URL, or the agent-skills home library; copies files (no symlink) and records a manifest + a registry entry (source URL, per-skill commit, install locations) so upgrades detect drift and "install <name>" knows where to fetch from. Use when the user says "install this skill", "promote skill to user level", "install <name> skill", or "upgrade my installed <name> skill".
 user-invocable: true
 ---
 
-# Install Skill (project → user)
+# Install Skill
 
-Promote a skill that ships inside a project repo (`<repo>/.claude/skills/<name>/`) to the user-level skills directory (`~/.claude/skills/<name>/`) so it is available across all projects.
+Promote a skill into the user-level skills directory (`~/.claude/skills/<name>/`)
+so it's available across all projects. Skills are **copied**, not symlinked, so
+the install is self-contained. A per-file manifest enables drift detection, and
+a registry entry records **where the skill came from** (so a later "install
+`<name>`" knows where to fetch) and **where it's been deployed**.
 
-Skills are **copied**, not symlinked, so the user-level install is self-contained. A manifest is written alongside the install so subsequent upgrades can detect when the user has modified the installed copy (a "drifted" install).
+The registry lives at `${XDG_CONFIG_HOME:-$HOME/.config}/install-skill/` — one
+`<name>.json` per skill.
 
-## Inputs
+## Where a skill is installed *from* (resolution order)
 
-- Skill name (optional). If omitted, list every directory under `.claude/skills/` in the current working tree and ask which one.
-- `--force` style intent from the user (overwrite drift without asking). If not given, default to **stop and ask** on drift.
+When asked to install `<name>`, resolve the source in this order:
 
-## Step 1: Locate the source
+1. **Current repo** — if the cwd is inside a git repo that ships
+   `<repo_root>/.claude/skills/<name>/`, use it. (A project that owns its own
+   skill — e.g. binaryfindery.)
+2. **Registered source** — else read `~/.config/install-skill/<name>.json`. Its
+   `source_remote` (a GitHub URL) is the canonical home. Use the recorded
+   `source_path` if it's still a valid clone; otherwise `git clone` (or
+   `git pull`) `source_remote` into a cache and install from there.
+3. **Home library** — else read install-skill's *own* entry
+   (`~/.config/install-skill/install-skill.json`) to locate the `agent-skills`
+   repo it came from, and look for `<name>` under that repo's `.claude/skills/`.
 
-1. From the current working directory, walk up to the git root (`git rev-parse --show-toplevel`).
-2. Confirm `<repo_root>/.claude/skills/` exists. If not, tell the user this command must be run from inside a repo that ships a skill, and stop.
-3. If the user named a skill, confirm `<repo_root>/.claude/skills/<name>/` exists. Otherwise, list `ls <repo_root>/.claude/skills/` and ask which to install.
-4. Confirm the source contains a `SKILL.md`. If not, refuse — it isn't a valid skill.
+If none resolve, say you can't find that skill's source and ask for a path/URL.
+With no skill named, list the `.claude/skills/` of the resolved source (and the
+registry's known skills) and ask which.
 
-Capture for the manifest:
-- `source_remote`: `git -C <repo_root> remote get-url origin` (may be empty — that's fine)
-- `source_commit`: `git -C <repo_root> rev-parse HEAD`
-- `source_dirty`: `git -C <repo_root> status --porcelain -- .claude/skills/<name>/` — if non-empty, warn the user that the source has uncommitted changes; ask whether to proceed.
+## Step 1 — validate & capture the source
 
-## Step 2: Check the target
+1. Resolve `<repo_root>` (the source repo per the order above).
+2. Confirm `<repo_root>/.claude/skills/<name>/SKILL.md` exists — else refuse; it
+   isn't a valid skill.
 
-Target is `~/.claude/skills/<name>/`.
+Capture:
+- `source_remote`: `git -C <repo_root> remote get-url origin` (the GitHub URL —
+  recorded so future installs know where to fetch from; may be empty for a
+  local-only repo).
+- `source_commit`: the **per-skill** commit —
+  `git -C <repo_root> log -1 --format=%H -- .claude/skills/<name>` (fall back to
+  `rev-parse HEAD` if there's no path history). This is what makes a monorepo
+  work: a skill is "out of date" only when *its own* files change, not on every
+  unrelated sibling commit.
+- `source_dirty`: `git -C <repo_root> status --porcelain -- .claude/skills/<name>/`
+  — if non-empty, warn that the source has uncommitted changes; ask whether to
+  proceed.
 
-Three cases:
+## Step 2 — check the target (`~/.claude/skills/<name>/`)
 
-**A. Target does not exist** → fresh install. Proceed to Step 3.
+**A. Doesn't exist** → fresh install. Proceed.
 
-**B. Target exists with a manifest** at `~/.claude/skills/<name>/.install-manifest.json` → upgrade path. Compute drift:
+**B. Exists with `.install-manifest.json`** → upgrade. Compute drift: re-hash
+each file in the manifest and compare to the recorded hash; any mismatch is a
+user-modified ("drifted") file.
+- If drift: list the files, `diff -u` each against the new source, and ask —
+  **overwrite** / **skip these files** / **abort**. If unsure, suggest aborting
+  and pushing the local change upstream first, or saving it aside.
+- If no drift: proceed silently.
 
-```bash
-# For each file in the manifest, hash the current installed version and compare.
-# Report any path where the live hash != manifest hash. Those are user-modified.
-```
+**C. Exists with NO manifest** (manual copy / pre-registry install) → stop and
+ask: **overwrite** (treat as fresh) or **abort**. Never silently clobber.
 
-If drift is detected:
-- List the drifted files.
-- Show the user a diff between each drifted file and the new source version (`diff -u`).
-- Ask: **overwrite** (lose local changes), **skip these files** (keep local, upgrade the rest), or **abort**.
-- If the user is unsure, suggest aborting and either committing their local changes upstream (into the project repo) or saving them aside (`cp <file> <file>.local`) before re-running.
+## Step 3 — copy
 
-If no drift, proceed to Step 3 silently.
+`rsync -a --delete --exclude=.install-manifest.json <repo_root>/.claude/skills/<name>/ ~/.claude/skills/<name>/`
+so files removed from the source are also removed from the target. If the user
+chose "skip drifted files", add `--exclude=<path>` for each.
 
-**C. Target exists with NO manifest** → installed by some other means (manual copy, older version of this skill, different repo). Stop and tell the user. Offer: **overwrite** (treat as fresh install), or **abort**. Do not silently clobber.
+## Step 4 — write the manifest
 
-## Step 3: Copy
-
-1. `mkdir -p ~/.claude/skills/<name>/`
-2. Copy every file under `<repo_root>/.claude/skills/<name>/` to `~/.claude/skills/<name>/`, preserving the relative tree. Exclude any `.install-manifest.json` in the source (shouldn't be there, but guard against it).
-3. Use `cp -R` or `rsync -a --delete` so that files removed in the new source are also removed from the target. `rsync -a --delete --exclude=.install-manifest.json` is the cleanest.
-4. If the user chose "skip drifted files" in Step 2, exclude those paths from the copy (`--exclude=<path>` for each).
-
-## Step 4: Write the manifest
-
-Write `~/.claude/skills/<name>/.install-manifest.json`:
+`~/.claude/skills/<name>/.install-manifest.json`:
 
 ```json
 {
   "name": "<name>",
   "source_remote": "<git remote url or empty>",
-  "source_commit": "<sha>",
-  "source_path": "<absolute path to the repo at install time, informational only>",
-  "installed_at": "<ISO 8601 UTC timestamp>",
+  "source_commit": "<per-skill subtree sha>",
+  "source_path": "<absolute repo path at install time>",
+  "installed_at": "<ISO 8601 UTC>",
   "skipped_drifted": ["<path>", ...],
-  "files": {
-    "<relative path>": "<sha256 hex>",
-    ...
-  }
+  "files": { "<relative path>": "<sha256 hex>", ... }
 }
 ```
 
-Hash each file with `shasum -a 256`. Use paths relative to the skill root. Do not hash the manifest itself.
+Hash each file with `shasum -a 256`, paths relative to the skill root. Don't
+hash the manifest itself.
 
-## Step 5: Write the XDG registry entry
+## Step 5 — write the registry entry
 
-The registry lives at `${XDG_CONFIG_HOME:-$HOME/.config}/install-skill/`. Create the directory if it does not exist.
-
-Write `<registry_dir>/<name>.json`:
+`~/.config/install-skill/<name>.json` — **read-modify-write** (preserve fields
+this skill doesn't own, e.g. `installed_into`):
 
 ```json
 {
   "name": "<name>",
-  "source_path": "<absolute path to repo skill dir at install time>",
-  "source_remote": "<git remote url or empty>",
-  "source_commit": "<sha>",
-  "source_dirty": true | false,
-  "install_path": "<absolute path to ~/.claude/skills/<name>>",
-  "installed_at": "<ISO 8601 UTC — set once on first install, never changed on upgrade>",
-  "updated_at": "<ISO 8601 UTC — set on every install or upgrade>",
-  "skipped_drifted": ["<relative path>", ...]
+  "source_remote": "<git remote url>",
+  "source_path": "<absolute repo skill-dir path at install time>",
+  "source_commit": "<per-skill subtree sha>",
+  "source_dirty": true,
+  "install_path": "<~/.claude/skills/<name>>",
+  "installed_at": "<ISO 8601 — set once, preserved on upgrade>",
+  "updated_at": "<ISO 8601 — set every time>",
+  "installed_into": [],
+  "skipped_drifted": []
 }
 ```
 
-- `installed_at` is set **once** on the first install. On upgrades, read the existing value and preserve it.
-- `updated_at` is always the current timestamp.
-- `source_dirty` mirrors the warning from Step 1.
+- The registry is a **catalog**: `skill → source URL` (where to (re)install from)
+  + where it's deployed. `source_remote` answers "install from where?".
+- `installed_at` is set once; `updated_at` every time.
+- **`installed_into`** records projects a skill's *own* installer copied it
+  into (e.g. github-guard's `install.sh` appends the repo path). install-skill
+  only **initializes it to `[]` if absent and preserves it on upgrade** — never
+  clobber it.
+- **install-skill registers itself**: installing install-skill writes its own
+  entry with `source_remote` = the `agent-skills` URL. That self-entry is what
+  anchors the home library (resolution #3 above).
+- Upgrade detection: compare the installed `source_commit` to the source's
+  current **per-skill** commit (Step 1).
 
-This registry enables listing all installed skills (`ls <registry_dir>` or reading each JSON), detecting which skills can be upgraded (compare `source_commit` to current HEAD of the source repo), and locating the original source repo for each skill.
+## Step 6 — report
 
-## Step 6: Report
+Terse: what was installed (name + short SHA), files copied/skipped, the install
+path, and — on upgrade — the previous `source_commit` for reference.
 
-Tell the user:
-- What was installed (name + source commit short SHA).
-- How many files copied, how many skipped (if any).
-- Path to the installed skill.
-- If this was an upgrade, the previous `installed_at` and `source_commit` for reference.
+## Notes on conflicts
 
-Keep it terse — one short block.
-
-## Notes on conflicts (for when the user asks)
-
-This skill records a manifest so it can *detect* drift but does not do three-way merges. If the user has both modified their installed copy AND the source has moved on, the only resolutions are:
-
-1. **Push local changes upstream** — copy their modifications into the project's `.claude/skills/<name>/`, commit, then re-run install. This is the right move if the change is generally useful.
-2. **Stash local changes** — `cp -R ~/.claude/skills/<name> ~/.claude/skills/<name>.local-backup`, install fresh, then re-apply local edits by hand from the backup.
-3. **Skip on upgrade** — use the "skip these files" option to keep local edits and only upgrade non-drifted files. Risk: the skipped files may reference moved/renamed bits from the rest of the skill. Tell the user this when offering the option.
+No three-way merge — detect drift and let the user choose. If they've modified
+the installed copy AND the source moved on: (1) push the local change upstream
+then re-install, (2) back up the install and re-install fresh, or (3) "skip
+those files" on upgrade (risk: skipped files may reference moved bits).
 
 ## What this skill does NOT do
 
-- Does not install from a remote URL — the user clones the repo themselves, then runs this from inside it.
-- Does not install `.claude/commands/`, `.claude/agents/`, or hooks — only `.claude/skills/<name>/`.
-- Does not auto-upgrade — must be re-run manually after `git pull` in the source repo.
-- Does not uninstall — `rm -rf ~/.claude/skills/<name>/` removes the skill, but also remove `${XDG_CONFIG_HOME:-$HOME/.config}/install-skill/<name>.json` to keep the registry clean.
+- Installs only `.claude/skills/<name>/` — not `.claude/commands/`, `agents/`,
+  or hooks.
+- Does not auto-upgrade — it'll `clone`/`pull` a registered `source_remote` when
+  you ask, but it won't poll.
+- Does not uninstall — `rm -rf ~/.claude/skills/<name>/` and remove
+  `~/.config/install-skill/<name>.json` to keep the registry clean.

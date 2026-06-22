@@ -51,27 +51,42 @@ self-selecting at runtime — no per-project config.
 
 ## How to install into a target repo
 
+The guards are **copied** into the repo's `.githooks/` as real files and
+committed — so anyone who clones the repo gets them (no symlinks, nothing
+pointing outside the repo). The install is **recorded** in `installed_into` so
+the whole set can be upgraded later.
+
 1. **Resolve the target.** Default to the repo containing the cwd
-   (`git rev-parse --show-toplevel`). If cwd isn't in a git repo, ask for the
-   path. State the resolved path before installing.
-2. **Check for an existing hooks setup.** If the target already sets
-   `core.hooksPath` to something *other than* `.githooks`, warn the user — the
-   installer copies into `.githooks/` but won't repoint `core.hooksPath`. If the
-   target already has a custom `.githooks/pre-commit` (a non-dispatcher), tell
-   the user it will be replaced by the dispatcher; its behavior should move into
-   a guard script in `pre-commit.d/` (e.g. fmt/clippy is already covered by the
-   `rust-*` guards).
+   (`git rev-parse --show-toplevel`); if cwd isn't a git repo, ask for the path.
+   State the resolved path before installing.
+2. **Check for a custom pre-commit.** If the target already has a custom
+   `.githooks/pre-commit` (a non-dispatcher), warn that the dispatcher replaces
+   it — its behavior should move into a `pre-commit.d/` guard (fmt/clippy is
+   already covered by the `rust-*` guards).
 3. **Run the installer:**
    ```sh
    bash ~/.claude/skills/github-guard/install.sh <target-repo-root>
    ```
+   It copies the guards into `<repo>/.githooks/`, sets `core.hooksPath`, and
+   records `<repo>` under `installed_into` in the registry.
 4. **Report & explain:**
    - Commit `.githooks/` so the guards travel with the repo.
-   - `core.hooksPath` is per-clone local config — each fresh clone re-runs the
-     installer (or `git config core.hooksPath .githooks`).
-   - The `github-*` guards need `gh` authed with admin on the repo, and only act
-     on accounts the user owns; otherwise they skip silently.
-5. **Offer to commit** `.githooks/`.
+   - `core.hooksPath` is per-clone local config — each fresh clone runs
+     `git config core.hooksPath .githooks` (or re-runs the installer).
+   - The `github-*` guards need `gh` authed with admin and only act on accounts
+     the user owns; otherwise they skip silently.
+
+## Upgrading every guarded project
+
+After changing the guards, refresh all recorded projects at once:
+
+```sh
+bash ~/.claude/skills/github-guard/install.sh --upgrade-all
+```
+
+It walks `installed_into` and re-copies fresh guards into each project (skipping
+any whose directory is gone). Each project keeps its own committed copy — review
+and commit the updated `.githooks/` per repo.
 
 ## Add / remove / disable a guard
 
