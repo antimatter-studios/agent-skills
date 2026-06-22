@@ -44,6 +44,11 @@ self-selecting at runtime — no per-project config.
   commit locally.
 - **`git-block-merge-commits`** (pre-push) — hard-blocks pushing any range that
   contains a merge commit.
+- **`git-block-bad-files`** (pre-commit) — refuses to commit staged keys/certs,
+  credential blobs, env files, OS junk, and merge cruft. Conservative (no broad
+  `*secret*` globs; `.env.example` etc. allowed).
+- **`git-no-trailing-whitespace`** (pre-commit) — blocks staged changes that add
+  trailing whitespace / space-before-tab (`git diff --cached --check`).
 - **`rust-fmt`** (pre-commit) — runs `cargo fmt` and re-stages the staged files;
   Cargo projects only; never blocks (auto-fixes layout).
 - **`rust-clippy`** (pre-commit) — `cargo clippy --all-targets -- -D warnings`;

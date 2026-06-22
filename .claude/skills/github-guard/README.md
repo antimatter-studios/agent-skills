@@ -62,6 +62,8 @@ re-install. (Every *other* repo gets the standard `install.sh` layout above.)
 | `github-protect-main` | pre-commit | no (fail-open) | Protects the **default branch**: require a PR, enforced for admins, linear history, no force-push/deletion. Owner-only. |
 | `git-block-merge-commit` | pre-merge-commit | yes | Refuses to **create** a merge commit locally. |
 | `git-block-merge-commits` | pre-push | yes | Refuses to **push** a range containing a merge commit. |
+| `git-block-bad-files` | pre-commit | yes | Refuses staged keys/certs, credential blobs, env files, OS junk, merge cruft. Conservative (no broad `*secret*`; `.env.example` allowed). |
+| `git-no-trailing-whitespace` | pre-commit | yes | Blocks staged changes that add trailing whitespace / space-before-tab. |
 | `rust-fmt` | pre-commit | no | `cargo fmt` then re-stage. Cargo projects only. |
 | `rust-clippy` | pre-commit | yes | `cargo clippy --all-targets -- -D warnings`. Cargo projects only. |
 
