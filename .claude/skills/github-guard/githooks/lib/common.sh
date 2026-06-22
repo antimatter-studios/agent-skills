@@ -43,6 +43,20 @@ gg_user_owns() {
 # limit — so the ~1-2s they add to the occasional commit isn't worth a
 # stamp-file/TTL mechanism.
 
+# True if this repo keeps a changelog — a root CHANGELOG.md, or a "Changelog"
+# (release notes / history) section in the root README.md. Guards that enforce
+# changelog discipline self-gate on this: no changelog convention → they no-op,
+# so projects without one are unaffected.
+gg_has_changelog() {
+  local root
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+  [ -f "$root/CHANGELOG.md" ] && return 0
+  [ -f "$root/README.md" ] \
+    && grep -qiE '^#{2,}[[:space:]]+(change ?log|release notes|recent changes|releases|history)\b' "$root/README.md" \
+    && return 0
+  return 1
+}
+
 # --- Rust helpers (shared by the rust-* guards) ------------------------------
 
 # True if the repo root holds a Cargo.toml (i.e. it's a Cargo project).

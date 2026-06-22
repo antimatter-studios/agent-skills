@@ -49,6 +49,14 @@ self-selecting at runtime — no per-project config.
   `*secret*` globs; `.env.example` etc. allowed).
 - **`git-no-trailing-whitespace`** (pre-commit) — blocks staged changes that add
   trailing whitespace / space-before-tab (`git diff --cached --check`).
+- **`git-block-large-files`** (pre-commit) — blocks staged files over a size
+  limit (default 10 MiB, `GITHUB_GUARD_MAX_FILE_MB`) unless Git-LFS-tracked. A
+  backstop for accidents; `.gitignore`/LFS is the real home for big assets.
+- **`git-changelog`** (pre-push) — when pushing a version tag, requires the
+  release to be documented: a section for the tag in CHANGELOG.md and/or the
+  README changelog section (≤10 versions in the README + a link to
+  CHANGELOG.md). Self-gates via `gg_has_changelog` — repos with no changelog are
+  unaffected.
 - **`rust-fmt`** (pre-commit) — runs `cargo fmt` and re-stages the staged files;
   Cargo projects only; never blocks (auto-fixes layout).
 - **`rust-clippy`** (pre-commit) — `cargo clippy --all-targets -- -D warnings`;

@@ -64,6 +64,8 @@ re-install. (Every *other* repo gets the standard `install.sh` layout above.)
 | `git-block-merge-commits` | pre-push | yes | Refuses to **push** a range containing a merge commit. |
 | `git-block-bad-files` | pre-commit | yes | Refuses staged keys/certs, credential blobs, env files, OS junk, merge cruft. Conservative (no broad `*secret*`; `.env.example` allowed). |
 | `git-no-trailing-whitespace` | pre-commit | yes | Blocks staged changes that add trailing whitespace / space-before-tab. |
+| `git-block-large-files` | pre-commit | yes | Blocks staged files over a limit (default 10 MiB, `GITHUB_GUARD_MAX_FILE_MB`) unless LFS-tracked. |
+| `git-changelog` | pre-push | yes | On a version-tag push, requires the release documented in CHANGELOG.md / README changelog (≤10 in README + link). Self-gates if no changelog. |
 | `rust-fmt` | pre-commit | no | `cargo fmt` then re-stage. Cargo projects only. |
 | `rust-clippy` | pre-commit | yes | `cargo clippy --all-targets -- -D warnings`. Cargo projects only. |
 
