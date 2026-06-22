@@ -42,3 +42,30 @@ gg_user_owns() {
 # — sparse, event-driven, a few calls each, nowhere near the 5000/hour API
 # limit — so the ~1-2s they add to the occasional commit isn't worth a
 # stamp-file/TTL mechanism.
+
+# --- Rust helpers (shared by the rust-* guards) ------------------------------
+
+# True if the repo root holds a Cargo.toml (i.e. it's a Cargo project).
+gg_is_rust() {
+  local root
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+  [ -f "$root/Cargo.toml" ]
+}
+
+# Run cargo via the rustup SHIM (`~/.cargo/bin/cargo`) so a repo's
+# rust-toolchain.toml pin is honored automatically — local fmt/clippy then use
+# the same toolchain as CI. A bare `cargo` can be Homebrew's, which ignores the
+# pin entirely; the shim is the rustup proxy and respects it (installing the
+# pinned toolchain on first use, as rustup intends). Falls back to whatever
+# `cargo` is on PATH if the shim isn't present; returns 2 if there's no cargo
+# at all (callers treat that as "skip, don't block").
+gg_cargo() {
+  local shim="$HOME/.cargo/bin/cargo"
+  if [ -x "$shim" ]; then
+    "$shim" "$@"
+  elif command -v cargo >/dev/null 2>&1; then
+    cargo "$@"
+  else
+    return 2
+  fi
+}

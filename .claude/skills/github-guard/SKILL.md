@@ -54,6 +54,10 @@ self-selecting at runtime — no per-project config.
 - **`rust-clippy`** (pre-commit) — `cargo clippy --all-targets -- -D warnings`;
   Cargo projects only; blocks on lint failures.
 
+Both rust guards run cargo via the **rustup shim** (`~/.cargo/bin/cargo`), so a
+repo's `rust-toolchain.toml` pin is honored and local fmt/clippy match CI — a
+bare `cargo` may be Homebrew's, which ignores the pin.
+
 ## How to install into a target repo
 
 The guards are **copied** into the repo's `.githooks/` as real files and

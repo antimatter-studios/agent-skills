@@ -12,9 +12,12 @@
 # (its staged snapshot commits unformatted) with a notice — never a silent
 # sweep.
 set -u
+dir=$(cd "$(dirname "$0")/.." && pwd)   # .githooks/
+# shellcheck source=../lib/common.sh
+. "$dir/lib/common.sh"
+
+gg_is_rust || exit 0
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-[ -f "$root/Cargo.toml" ] || exit 0
-command -v cargo >/dev/null 2>&1 || { echo "github-guard: cargo not found — skipping rust-fmt" >&2; exit 0; }
 
 # Staged .rs files, and (captured BEFORE formatting) which .rs files also carry
 # unstaged changes — their intersection is the "partially staged" danger set.
@@ -22,7 +25,9 @@ staged=$(git diff --cached --name-only --diff-filter=ACM -- '*.rs')
 [ -n "$staged" ] || exit 0
 unstaged=$(git diff --name-only --diff-filter=ACMD -- '*.rs')
 
-( cd "$root" && cargo fmt ) || { echo "github-guard: 'cargo fmt' failed — not blocking" >&2; exit 0; }
+# Format via gg_cargo (the rustup shim), which honors rust-toolchain.toml so it
+# matches CI. If cargo isn't available, don't block — just skip.
+( cd "$root" && gg_cargo fmt ) || { echo "github-guard: 'cargo fmt' skipped/failed — not blocking" >&2; exit 0; }
 
 printf '%s\n' "$staged" | while IFS= read -r f; do
   [ -n "$f" ] || continue
