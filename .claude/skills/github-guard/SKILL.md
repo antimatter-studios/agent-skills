@@ -76,8 +76,9 @@ bare `cargo` may be Homebrew's, which ignores the pin.
 
 The guards are **copied** into the repo's `.githooks/` as real files and
 committed — so anyone who clones the repo gets them (no symlinks, nothing
-pointing outside the repo). The install is **recorded** in `installed_into` so
-the whole set can be upgraded later.
+pointing outside the repo). `install.sh` deploys into **one** repo; recording the
+deployment and re-syncing every project later are handled by **install-skill**,
+which owns the `installed_into` registry (see *Upgrading every guarded project*).
 
 1. **Resolve the target.** Default to the repo containing the cwd
    (`git rev-parse --show-toplevel`); if cwd isn't a git repo, ask for the path.
@@ -90,10 +91,14 @@ the whole set can be upgraded later.
    ```sh
    bash ~/.claude/skills/github-guard/install.sh <target-repo-root>
    ```
-   It copies the guards into `<repo>/.githooks/`, sets `core.hooksPath`, and
-   records `<repo>` under `installed_into` in the registry.
+   It copies the guards into `<repo>/.githooks/` and sets `core.hooksPath`. It
+   does **not** write any registry (see the next step).
 4. **Report & explain:**
    - Commit `.githooks/` so the guards travel with the repo.
+   - **Record the deployment** so it can be re-synced later: install-skill
+     appends `<repo>` to `installed_into`. Simplest path: ask install-skill to
+     *"deploy github-guard into `<repo>`"*, which runs this installer **and**
+     records it in one step.
    - `core.hooksPath` is per-clone local config — each fresh clone runs
      `git config core.hooksPath .githooks` (or re-runs the installer).
    - The `github-*` guards need `gh` authed with admin and only act on accounts
@@ -101,15 +106,17 @@ the whole set can be upgraded later.
 
 ## Upgrading every guarded project
 
-After changing the guards, refresh all recorded projects at once:
+After changing the guards, re-sync all recorded projects via **install-skill** —
+it owns the deployment registry and the fan-out; github-guard's `install.sh` is
+single-target only:
 
-```sh
-bash ~/.claude/skills/github-guard/install.sh --upgrade-all
-```
+> ask install-skill to **"upgrade all github-guard deployments"**
 
-It walks `installed_into` and re-copies fresh guards into each project (skipping
-any whose directory is gone). Each project keeps its own committed copy — review
-and commit the updated `.githooks/` per repo.
+It walks `installed_into`, re-runs this installer per project (pruning any whose
+directory is gone or that isn't actually a github-guard install), preserves
+project-local extra guards, and diffs+asks before overwriting a locally-edited
+guard. Each project keeps its own committed copy — review and commit the updated
+`.githooks/` per repo.
 
 ## Add / remove / disable a guard
 

@@ -1,5 +1,5 @@
 ---
-description: Install or upgrade a skill into the user-level skills directory (`~/.claude/skills/<name>/`) so it works across all projects. Resolves the skill's source from the current repo, a registered source URL, or the agent-skills home library; copies files (no symlink) and records a manifest + a registry entry (source URL, per-skill commit, install locations) so upgrades detect drift and "install <name>" knows where to fetch from. Use when the user says "install this skill", "promote skill to user level", "install <name> skill", or "upgrade my installed <name> skill".
+description: Install or upgrade a skill into the user-level skills directory (`~/.claude/skills/<name>/`) so it works across all projects. Resolves the skill's source from the current repo, a registered source URL, or the agent-skills home library; copies files (no symlink) and records a manifest + a registry entry (source URL, per-skill commit, install locations) so upgrades detect drift and "install <name>" knows where to fetch from. Also tracks where a skill's payload was deployed into individual projects and can re-sync ("upgrade") every copy. Use when the user says "install this skill", "promote skill to user level", "install <name> skill", "upgrade my installed <name> skill", "deploy <skill> into <repo>", or "upgrade all <skill> deployments".
 user-invocable: true
 ---
 
@@ -94,8 +94,9 @@ hash the manifest itself.
 
 ## Step 5 — write the registry entry
 
-`~/.config/install-skill/<name>.json` — **read-modify-write** (preserve fields
-this skill doesn't own, e.g. `installed_into`):
+`~/.config/install-skill/<name>.json` — **read-modify-write** (preserve any
+field you don't recognize, and never reset `installed_into` — it's maintained by
+the deploy ops below, not this step):
 
 ```json
 {
@@ -115,10 +116,12 @@ this skill doesn't own, e.g. `installed_into`):
 - The registry is a **catalog**: `skill → source URL` (where to (re)install from)
   + where it's deployed. `source_remote` answers "install from where?".
 - `installed_at` is set once; `updated_at` every time.
-- **`installed_into`** records projects a skill's *own* installer copied it
-  into (e.g. github-guard's `install.sh` appends the repo path). install-skill
-  only **initializes it to `[]` if absent and preserves it on upgrade** — never
-  clobber it.
+- **`installed_into`** records the projects a skill's payload was deployed into.
+  **install-skill owns this field** (see *Deploying a skill's payload into
+  projects* below): it appends a project path when a payload is deployed there
+  (read-modify-write, dedup) and preserves it across skill upgrades. A skill's
+  own single-target installer (e.g. github-guard's `install.sh <repo>`) never
+  touches the registry.
 - **install-skill registers itself**: installing install-skill writes its own
   entry with `source_remote` = the `agent-skills` URL. That self-entry is what
   anchors the home library (resolution #3 above).
@@ -130,6 +133,46 @@ this skill doesn't own, e.g. `installed_into`):
 Terse: what was installed (name + short SHA), files copied/skipped, the install
 path, and — on upgrade — the previous `source_commit` for reference.
 
+## Deploying a skill's payload into projects (`installed_into`)
+
+Some skills don't just live in `~/.claude/skills/` — they **copy a payload into
+individual git repos** (e.g. github-guard copies its `githooks/` tree into each
+repo's `.githooks/`). install-skill owns the **registry of where that happened**
+and the **fan-out to re-sync** them; the skill itself only ships a **single-target
+installer** — `~/.claude/skills/<skill>/install.sh <project>` — that deploys into
+exactly one repo and is registry-agnostic. *How* a payload is laid down is the
+skill's business; *tracking it and re-syncing* is install-skill's. This is generic
+— it works for any payload-deploying skill, not just github-guard.
+
+### Deploy a skill's payload into one project
+
+1. Run the skill's single-target installer against the target repo:
+   `~/.claude/skills/<skill>/install.sh <project>` (it copies the payload in — for
+   github-guard, `.githooks/` + `core.hooksPath`).
+2. Record it: append the absolute `<project>` path to `installed_into` in
+   `~/.config/install-skill/<skill>.json` (read-modify-write, dedup; create the
+   file/field if absent). This is the **only** place `installed_into` is written.
+3. Remind the user to commit the payload (e.g. `.githooks/`) so it travels with
+   the repo.
+
+### Upgrade all deployments of a skill
+
+Re-sync the current payload into every recorded project:
+
+1. Read `installed_into` from `~/.config/install-skill/<skill>.json`. Empty/absent
+   → nothing to do.
+2. For each recorded path:
+   - **Gone / not a git repo** → report and **prune** it from `installed_into`.
+   - **Not actually this skill's deployment** (the payload marker is missing — e.g.
+     no `.githooks/lib/run-guards.sh` for github-guard) → report and prune; never
+     clobber an unrelated setup that merely shares the path.
+   - **Valid** → re-run the skill's single-target installer (full re-sync; a
+     merging copy keeps project-local *extra* files). Before overwriting a payload
+     file the project **locally edited** (differs in content, not just absent),
+     show the `diff` and ask — overwrite / skip / abort — per the drift rules above.
+3. Write back the pruned `installed_into`. Report upgraded / skipped / pruned, and
+   remind the user each touched repo now has uncommitted payload changes to commit.
+
 ## Notes on conflicts
 
 No three-way merge — detect drift and let the user choose. If they've modified
@@ -139,8 +182,10 @@ those files" on upgrade (risk: skipped files may reference moved bits).
 
 ## What this skill does NOT do
 
-- Installs only `.claude/skills/<name>/` — not `.claude/commands/`, `agents/`,
-  or hooks.
+- The **user-level install** copies only `.claude/skills/<name>/` — not
+  `.claude/commands/`, `agents/`, or hooks. (Deploying a skill's *payload* into a
+  project is a separate op that delegates to the skill's own single-target
+  installer — see *Deploying a skill's payload into projects*.)
 - Does not auto-upgrade — it'll `clone`/`pull` a registered `source_remote` when
   you ask, but it won't poll.
 - Does not uninstall — `rm -rf ~/.claude/skills/<name>/` and remove
