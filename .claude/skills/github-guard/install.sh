@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Install / upgrade github-guard's hooks in a target git repo.
+# Install github-guard's hooks into ONE target git repo.
 #
 #   install.sh [path-to-repo]    copy the guards into <repo>/.githooks (default: cwd)
-#                                and record <repo> in the installed_into registry
-#   install.sh --upgrade-all     re-copy fresh guards into every recorded project
+#                                and point core.hooksPath at it.
 #
 # The hooks are COPIED as real files and committed with the repo, so anyone who
 # clones it gets the guards (no symlinks, nothing pointing outside the repo).
+# core.hooksPath is per-clone local config, so each fresh clone re-runs
+# `git config core.hooksPath .githooks` (this installer does that for you).
 #
-# installed_into registry (~/.config/install-skill/github-guard.json) remembers
-# every project the guards were copied into, so `--upgrade-all` can refresh them
-# all — each project keeps its own committed copy. core.hooksPath is per-clone
-# local config, so each fresh clone runs `git config core.hooksPath .githooks`.
+# Single-target only. Tracking which projects the guards were copied into, and
+# re-syncing them all on upgrade, is GENERIC plumbing that lives in install-skill
+# (the deployment registry at ~/.config/install-skill/<skill>.json). This script
+# never reads or writes that registry.
 set -euo pipefail
 
 src=$(cd "$(dirname "$0")/githooks" && pwd)
-reg="${XDG_CONFIG_HOME:-$HOME/.config}/install-skill/github-guard.json"
 
 # Copy the guard tree into <repo>/.githooks and point core.hooksPath at it.
 # cp -R merges into an existing .githooks/ (overwrites github-guard's files,
@@ -39,45 +39,9 @@ copy_into() {
   fi
 }
 
-# Append a repo path to installed_into (dedup). Best-effort.
-record_install() {
-  command -v python3 >/dev/null 2>&1 || return 0
-  python3 - "$reg" "$1" <<'PY' 2>/dev/null || true
-import json, os, sys
-reg, target = sys.argv[1:3]
-os.makedirs(os.path.dirname(reg), exist_ok=True)
-data = {}
-if os.path.exists(reg):
-    try: data = json.load(open(reg))
-    except Exception: data = {}
-data.setdefault("name", "github-guard")
-paths = [p for p in (data.get("installed_into") or []) if p != target]
-paths.append(target)
-data["installed_into"] = paths
-with open(reg, "w") as f:
-    json.dump(data, f, indent=2); f.write("\n")
-PY
-}
-
-if [ "${1:-}" = "--upgrade-all" ]; then
-  [ -f "$reg" ] || { echo "github-guard: nothing recorded yet ($reg absent)"; exit 0; }
-  paths=$(python3 -c "import json,sys;print('\n'.join(json.load(open(sys.argv[1])).get('installed_into',[])))" "$reg" 2>/dev/null || true)
-  [ -n "$paths" ] || { echo "github-guard: installed_into is empty — nothing to upgrade"; exit 0; }
-  echo "github-guard: re-copying guards into each recorded project…"
-  printf '%s\n' "$paths" | while IFS= read -r p; do
-    [ -n "$p" ] || continue
-    if [ -d "$p" ]; then
-      copy_into "$p" && printf "  upgraded: %s  (review & commit .githooks/)\n" "$p"
-    else
-      printf "  skip (missing): %s\n" "$p"
-    fi
-  done
-  exit 0
-fi
-
 target=$(cd "${1:-$PWD}" && pwd)
 copy_into "$target"
-record_install "$target"
-printf 'github-guard installed in %s (core.hooksPath=.githooks); recorded in installed_into.\n' "$target"
+printf 'github-guard installed in %s (core.hooksPath=.githooks).\n' "$target"
 printf 'Commit the .githooks/ directory so the guards travel with the repo.\n'
-printf 'Upgrade every recorded project later with:  install.sh --upgrade-all\n'
+printf 'To record this deployment and re-sync every project on upgrade, ask install-skill:\n'
+printf '  "deploy github-guard into %s"  /  "upgrade all github-guard deployments".\n' "$target"
