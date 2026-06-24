@@ -57,6 +57,12 @@ self-selecting at runtime — no per-project config.
   README changelog section (≤10 versions in the README + a link to
   CHANGELOG.md). Self-gates via `gg_has_changelog` — repos with no changelog are
   unaffected.
+- **`git-tags-on-main`** (pre-push) — hard-blocks pushing a tag whose target
+  commit is not contained in the default branch (`main`); release tags must mark
+  a commit that landed on main, never one stranded on a feature or pre-squash
+  line. Purely local (ancestry check; peels annotated tags); fail-open only if
+  `main` can't be resolved locally. Git has no `git tag` creation hook, so the
+  push is the enforcement point.
 - **`rust-fmt`** (pre-commit) — runs `cargo fmt` and re-stages the staged files;
   Cargo projects only; never blocks (auto-fixes layout).
 - **`rust-clippy`** (pre-commit) — `cargo clippy --all-targets -- -D warnings`;
