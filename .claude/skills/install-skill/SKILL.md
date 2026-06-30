@@ -173,6 +173,36 @@ Re-sync the current payload into every recorded project:
 3. Write back the pruned `installed_into`. Report upgraded / skipped / pruned, and
    remind the user each touched repo now has uncommitted payload changes to commit.
 
+### Running the fan-out robustly (shell-portability guardrails)
+
+The fan-out is many `install.sh <project>` calls. The invoking shell is often
+**zsh**, and commands may be **eval'd inside a sandbox**, where naive loops fail
+quietly. Each rule below comes from a real run that misfired — follow them or the
+upgrade silently does nothing / errors:
+
+- **Prefer one project per command.** Running each `install.sh` as its own
+  separate step (not one mega-loop) sidesteps every quirk below and isolates
+  failures. A loop is an optimization, not a requirement — reach for it only once
+  the single-call form is known to work in the current shell.
+- **Never iterate an unquoted variable.** `for p in $projects` does NOT
+  word-split in zsh — it runs **once** with the entire string as `$p`. Use a
+  **literal list** (`for p in a b c`), a `while IFS= read -r p; do … done <<'EOF'`
+  block, or a command substitution (`for p in $(printf '%s\n' …)` — zsh *does*
+  split that).
+- **Never put `~` in a variable or in quotes.** `INST=~/x; "$INST"` passes a
+  literal `~` that won't be expanded. Use `$HOME`.
+- **Don't rely on bare `bash` being on PATH.** Inside an eval'd compound command
+  it can be "command not found". **Run `install.sh` directly** — it's executable
+  with a shebang: `"$HOME/.claude/skills/<skill>/install.sh" "$proj"`. If you must
+  name an interpreter, use a full path.
+- **Avoid `>/dev/null 2>&1` inside a compound loop.** That redirect has made an
+  eval'd zsh loop return `rc=1` even when the command itself succeeded. Run the
+  command plainly, or redirect only `stdout` (`>/dev/null`), or invoke per-step.
+- **Verify the result; don't trust the exit code.** After each deploy, confirm
+  the new payload actually landed — e.g. `grep` for a marker string unique to the
+  new version in the deployed file. A reported success has silently not-stuck
+  before; just re-run that one project.
+
 ## Notes on conflicts
 
 No three-way merge — detect drift and let the user choose. If they've modified
