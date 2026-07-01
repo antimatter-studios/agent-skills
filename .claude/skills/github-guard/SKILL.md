@@ -1,6 +1,6 @@
 ---
 name: github-guard
-description: Install github-guard's composable git-hook guards into a repository. Ships a run-parts dispatcher for every safe client-side git hook plus a catalog of drop-in guards — linear history (squash+rebase only, block local merge commits), protect the default branch (require PRs, no direct pushes), and auto-fmt + clippy for Rust. Use when the user asks to install/add github-guard or merge-guard, protect a repo from merge commits or direct pushes to main, enforce linear history or squash-only merges, or add pre-commit fmt/clippy guards.
+description: Install github-guard's composable git-hook guards into a repository. Ships a run-parts dispatcher for every safe client-side git hook plus a catalog of drop-in guards — linear history (squash+rebase only, block local merge commits), protect the default branch (require PRs, no direct pushes), and auto-fmt + clippy + reproducible-release dependency-pinning for Rust. Use when the user asks to install/add github-guard or merge-guard, protect a repo from merge commits or direct pushes to main, enforce linear history or squash-only merges, or add pre-commit fmt/clippy guards.
 ---
 
 # github-guard
@@ -18,6 +18,7 @@ each guard is a single-purpose script you drop in or delete.
     github-protect-main.sh
     rust-fmt.sh
     rust-clippy.sh
+    rust-deps-pinned.sh
   pre-merge-commit  + pre-merge-commit.d/git-block-merge-commit.sh
   pre-push          + pre-push.d/git-block-merge-commits.sh
   lib/common.sh  lib/run-guards.sh
@@ -66,11 +67,20 @@ self-selecting at runtime — no per-project config.
 - **`rust-fmt`** (pre-commit) — runs `cargo fmt` and re-stages the staged files;
   Cargo projects only; never blocks (auto-fixes layout).
 - **`rust-clippy`** (pre-commit) — `cargo clippy --all-targets -- -D warnings`;
-  Cargo projects only; blocks on lint failures.
+  Cargo projects only; blocks on lint failures. Skips (never blocks) when a
+  `path=` sibling dependency isn't checked out — CI, which has every sibling,
+  is the backstop.
+- **`rust-deps-pinned`** (pre-commit) — reproducible-release gate; Cargo projects
+  only; blocks on: a workflow that floating-clones or `actions/checkout`s a
+  **same-owner sibling repo** without a pinned `--branch`/`ref:`; a `Cargo.lock`
+  that's tracked-but-missing, version-drifted from `Cargo.toml`, or reported
+  stale by `cargo metadata --locked`. Fail-open when cargo or a path-dep sibling
+  isn't available (fresh clone / empty offline cache) — CI's `--locked` is the
+  final backstop.
 
-Both rust guards run cargo via the **rustup shim** (`~/.cargo/bin/cargo`), so a
-repo's `rust-toolchain.toml` pin is honored and local fmt/clippy match CI — a
-bare `cargo` may be Homebrew's, which ignores the pin.
+The rust guards run cargo via the **rustup shim** (`~/.cargo/bin/cargo`), so a
+repo's `rust-toolchain.toml` pin is honored and local fmt/clippy/metadata match
+CI — a bare `cargo` may be Homebrew's, which ignores the pin.
 
 ## How to install into a target repo
 
@@ -85,8 +95,8 @@ which owns the `installed_into` registry (see *Upgrading every guarded project*)
    State the resolved path before installing.
 2. **Check for a custom pre-commit.** If the target already has a custom
    `.githooks/pre-commit` (a non-dispatcher), warn that the dispatcher replaces
-   it — its behavior should move into a `pre-commit.d/` guard (fmt/clippy is
-   already covered by the `rust-*` guards).
+   it — its behavior should move into a `pre-commit.d/` guard (fmt/clippy and
+   reproducible-release dep-pinning are already covered by the `rust-*` guards).
 3. **Run the installer:**
    ```sh
    bash ~/.claude/skills/github-guard/install.sh <target-repo-root>

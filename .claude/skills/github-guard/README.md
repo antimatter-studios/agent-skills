@@ -17,6 +17,7 @@ deleting it. Nothing monolithic.
     github-protect-main.sh         # GitHub: require PRs, no direct pushes to default branch
     rust-fmt.sh                    # cargo fmt + re-stage (Cargo projects only)
     rust-clippy.sh                 # cargo clippy -D warnings (Cargo projects only)
+    rust-deps-pinned.sh            # reproducible-release dep pinning (Cargo projects only)
   pre-merge-commit.d/git-block-merge-commit.sh
   pre-push.d/git-block-merge-commits.sh
   lib/common.sh   lib/run-guards.sh
@@ -68,7 +69,8 @@ re-install. (Every *other* repo gets the standard `install.sh` layout above.)
 | `git-changelog` | pre-push | yes | On a version-tag push, requires the release documented in CHANGELOG.md / README changelog (≤10 in README + link). Self-gates if no changelog. |
 | `git-tags-on-main` | pre-push | yes | Blocks pushing a **tag** whose commit isn't on the default branch (`main`) — release tags must mark a commit that landed on main, not one stranded on a feature/pre-squash line. Purely local; peels annotated tags. |
 | `rust-fmt` | pre-commit | no | `cargo fmt` then re-stage. Cargo projects only. |
-| `rust-clippy` | pre-commit | yes | `cargo clippy --all-targets -- -D warnings`. Cargo projects only. |
+| `rust-clippy` | pre-commit | yes | `cargo clippy --all-targets -- -D warnings`. Cargo projects only; skips (doesn't block) when a `path=` sibling dep isn't checked out. |
+| `rust-deps-pinned` | pre-commit | yes | Reproducible-release gate: blocks a floating workflow clone/`checkout` of a same-owner sibling repo (no `--branch`/`ref:`), and a `Cargo.lock` that's missing/version-drifted/stale. Cargo projects only; fail-open when cargo/siblings unavailable. |
 
 Every guard **self-gates**: `rust-*` skip without a `Cargo.toml`; `github-*`
 skip on repos you don't own or non-GitHub remotes. So the same set installs
