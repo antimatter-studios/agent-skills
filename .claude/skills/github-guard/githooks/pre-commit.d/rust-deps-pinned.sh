@@ -109,18 +109,33 @@ elif [ -f Cargo.lock ]; then
   # ── 4. authoritative stale-lock check (cargo is the oracle), best-effort ──
   # `cargo metadata --locked` refuses to rewrite the lock and errors if it's out
   # of date. Run --offline so the hook stays fast and never touches the network.
-  # BLOCK only on the staleness signal; any other failure (a path-dep sibling
-  # not checked out on a fresh clone, an empty offline cache) is an environment
-  # limitation → skip. gg_cargo returns 2 when there's no cargo at all → skip.
-  if err=$(gg_cargo metadata --locked --offline --format-version 1 2>&1 >/dev/null); then
-    : # lock is fresh
-  else
-    rc=$?
-    if [ "$rc" != 2 ] && printf '%s\n' "$err" | grep -qiE 'cannot update the lock file|needs to be updated|out.?of.?date'; then
-      echo "[deps] Cargo.lock is STALE — it no longer matches Cargo.toml:" >&2
-      printf '%s\n' "$err" | grep -iE 'cannot update the lock file|needs to be updated|out.?of.?date' | head -1 | sed 's/^/       /' >&2
-      echo "       Fix: cargo generate-lockfile && git add Cargo.lock" >&2
-      fail=1
+  #
+  # BUT only when the graph resolves the same as CI's. A crate with an EXTERNAL
+  # `path = "../sibling"` dependency can't guarantee that locally: a sibling
+  # checked out at a version that differs from what the lock records (routine in
+  # multi-repo dev) makes cargo want to re-lock, which surfaces as the exact same
+  # "cannot update the lock file" error as true staleness — a false block we must
+  # not raise. So skip part 4 whenever an external path dep is present; CI (with
+  # siblings pinned to their tagged versions) is the authoritative --locked
+  # backstop, and parts 1–3 above still apply. Registry-only / in-repo-workspace
+  # crates keep the full check.
+  ext_path_dep=0
+  while IFS= read -r toml; do
+    if grep -qE 'path[[:space:]]*=[[:space:]]*"\.\.?/' "$toml" 2>/dev/null; then ext_path_dep=1; break; fi
+  done < <(git ls-files '*Cargo.toml' 'Cargo.toml')
+  if [ "$ext_path_dep" = 0 ]; then
+    # BLOCK only on the staleness signal; any other failure (empty offline cache,
+    # etc.) is an environment limitation → skip. gg_cargo returns 2 with no cargo.
+    if err=$(gg_cargo metadata --locked --offline --format-version 1 2>&1 >/dev/null); then
+      : # lock is fresh
+    else
+      rc=$?
+      if [ "$rc" != 2 ] && printf '%s\n' "$err" | grep -qiE 'cannot update the lock file|needs to be updated|out.?of.?date'; then
+        echo "[deps] Cargo.lock is STALE — it no longer matches Cargo.toml:" >&2
+        printf '%s\n' "$err" | grep -iE 'cannot update the lock file|needs to be updated|out.?of.?date' | head -1 | sed 's/^/       /' >&2
+        echo "       Fix: cargo generate-lockfile && git add Cargo.lock" >&2
+        fail=1
+      fi
     fi
   fi
 fi
