@@ -17,28 +17,27 @@ branch=$(gh api "repos/$slug" --jq '.default_branch' 2>/dev/null) || {
   echo "github-guard: couldn't read default branch for $slug — skipping" >&2; exit 0; }
 [ -n "$branch" ] || exit 0
 
-# Required status checks: auto-discover the checks that gate the default branch
-# and require them, strict. We discover from the branch's own check-SUITES
-# (head_branch == the default branch), NOT from every check-run on the HEAD
-# commit: when HEAD is also a release tag's target (you tag the commit you just
-# merged), that commit also carries tag-triggered suites — e.g. a release
-# workflow on a vN.N.N tag — whose jobs never run on a pull request. Requiring
-# those would make every PR wait forever on checks that can't run. Filtering by
-# suite head_branch keeps only the PR/branch checks; the github-actions app
-# filter still excludes third-party checks like coderabbit. Self-healing — a
-# newly-added job is required one commit cycle after it first runs on the
-# branch; never strips existing checks on a transient empty discovery.
+# Required status checks: auto-discover the checks that GATE A PULL REQUEST and
+# require them, strict. The only checks that can gate a PR are the ones that run
+# on `pull_request`, so discover them from recent pull_request workflow runs —
+# NOT from the default branch's HEAD commit. That commit also carries release
+# checks triggered by a tag push OR a `workflow_dispatch` on the branch; those
+# never run on a PR, and requiring them makes every PR wait forever on checks
+# that can't complete. Take the latest pull_request run per workflow and union
+# their check-run names: exactly the PR gate. The github-actions app filter
+# still excludes third-party checks like coderabbit. Self-healing — a renamed or
+# added CI job syncs after the next PR runs it; never strips existing checks on
+# a transient empty discovery. jq required; without it we preserve whatever's
+# already set (fail-open).
 #
 # Both `desired` (here) and `current` (the read-back below) end as compact JSON
 # straight from jq (`jq -c` / `tojson`), so escaping (quotes, backslashes) and
-# sort order match and the equality check below is exact. If jq is absent we
-# leave `desired` empty and preserve whatever's already set (fail-open).
+# sort order match and the equality check below is exact.
 desired='[]'
 if command -v jq >/dev/null 2>&1; then
-  # Suite IDs for github-actions runs that ran on the default branch itself
-  # (excludes tag-triggered release suites, whose head_branch is the tag name).
-  suite_ids=$(gh api --paginate "repos/$slug/commits/$branch/check-suites?per_page=100" \
-    --jq ".check_suites[] | select(.app.slug==\"github-actions\") | select(.head_branch==\"$branch\") | .id" 2>/dev/null)
+  # check-suite of the latest pull_request run of each PR-triggering workflow.
+  suite_ids=$(gh api "repos/$slug/actions/runs?event=pull_request&per_page=50" \
+    --jq '[.workflow_runs[]?] | group_by(.workflow_id)[] | max_by(.created_at) | .check_suite_id' 2>/dev/null)
   desired=$(
     for sid in $suite_ids; do
       gh api --paginate "repos/$slug/check-suites/$sid/check-runs?per_page=100" \
