@@ -57,8 +57,9 @@ if [ -n "$owner" ] && [ -d .github/workflows ]; then
           # Heuristic blocklist of well-known mutable branch names (not exhaustive
           # by design — the authoritative reproducibility gate is the Cargo.lock
           # checks below + CI's --locked; this just catches the common offenders).
-          case "$brval" in
-            main | master | develop | dev | trunk | HEAD | next | staging | release | canary)
+          # Matched case-insensitively so Main/MAIN/Develop are caught too.
+          case "$(printf '%s' "$brval" | tr '[:upper:]' '[:lower:]')" in
+            main | master | develop | dev | trunk | head | next | staging | release | canary)
               echo "[deps] FLOATING git clone — --branch '$brval' is a MUTABLE branch (pin a tag) in $wf:" >&2
               echo "       ${logical#"${logical%%[![:space:]]*}"}" >&2
               fail=1 ;;
