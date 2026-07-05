@@ -153,7 +153,11 @@ skill's business; *tracking it and re-syncing* is install-skill's. This is gener
    `~/.config/install-skill/<skill>.json` (read-modify-write, dedup; create the
    file/field if absent). This is the **only** place `installed_into` is written.
 3. Remind the user to commit the payload (e.g. `.githooks/`) so it travels with
-   the repo.
+   the repo — **and, for github-guard, because the commit is what ACTIVATES the
+   `github-*` guards**: they live in `pre-commit.d/` and only heal the GitHub repo
+   (branch protection, squash-only) when a commit lands on the default branch.
+   Until committed, the deploy is only half-done. See github-guard's SKILL.md
+   ("How to install into a target repo", step 4) for the bootstrap caveat.
 
 ### Upgrade all deployments of a skill
 

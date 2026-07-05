@@ -104,7 +104,16 @@ which owns the `installed_into` registry (see *Upgrading every guarded project*)
    It copies the guards into `<repo>/.githooks/` and sets `core.hooksPath`. It
    does **not** write any registry (see the next step).
 4. **Report & explain:**
-   - Commit `.githooks/` so the guards travel with the repo.
+   - **Commit `.githooks/` — not optional; this ACTIVATES the github-* guards.**
+     `github-protect-main` and `github-merge-squash-only` live in `pre-commit.d/`,
+     so they only run when a commit lands on the default branch. Until you commit,
+     the GitHub-side settings are NEVER applied — squash-only stays off and the
+     default branch stays unprotected; the install is only half-done. Verify:
+     `allow_merge_commit` is now `false` and `branches/<default>/protection`
+     returns 200 (was 404).
+   - **Bootstrap caveat:** that same first commit makes the default branch require
+     a PR (admin-enforced, no direct push). So the `.githooks/` commit itself can
+     no longer be pushed straight to the default branch — land it via a PR.
    - **Record the deployment** so it can be re-synced later: install-skill
      appends `<repo>` to `installed_into`. Simplest path: ask install-skill to
      *"deploy github-guard into `<repo>`"*, which runs this installer **and**
