@@ -16,7 +16,17 @@ gg_repo_slug() {
     *) return 0 ;;
   esac
   url=${url%.git}
-  url=${url#*github.com[:/]}
+  case "$url" in
+    ssh://*)
+      # ssh://[user@]host[:port]/owner/repo — includes GitHub's SSH-over-443 form
+      # (ssh://git@ssh.github.com:443/owner/repo). Strip scheme, user@, host[:port]/.
+      url=${url#ssh://}; url=${url#*@}; url=${url#*/}
+      ;;
+    *)
+      # scp-style git@github.com:owner/repo, or https://github.com/owner/repo
+      url=${url#*github.com[:/]}
+      ;;
+  esac
   printf '%s' "$url"
 }
 
