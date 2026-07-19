@@ -20,7 +20,15 @@ gg_user_owns "$owner" || exit 0
 set -- $(gh api "repos/$slug" \
   --jq '"\(.allow_merge_commit) \(.allow_squash_merge) \(.allow_rebase_merge)"' 2>/dev/null)
 mc=${1:-} sq=${2:-} rb=${3:-}
-[ -n "$mc" ] || { echo "github-guard: couldn't read merge settings for $slug — skipping" >&2; exit 0; }
+# Only act on a well-formed response: each field must be a literal boolean. A
+# missing field makes jq emit "null" (non-empty), and a failed/edge read yields
+# empty — neither must be mistaken for "needs reconciling" and trigger a PATCH.
+for v in "$mc" "$sq" "$rb"; do
+  case "$v" in
+    true|false) ;;
+    *) echo "github-guard: unexpected merge-settings response for $slug — skipping" >&2; exit 0 ;;
+  esac
+done
 
 if [ "$mc" != "false" ] || [ "$sq" != "true" ] || [ "$rb" != "true" ]; then
   echo "github-guard: $slug merge settings (merge=$mc squash=$sq rebase=$rb) — reconciling to squash+rebase only…" >&2
