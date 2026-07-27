@@ -22,6 +22,7 @@ each guard is a single-purpose script you drop in or delete.
   pre-merge-commit  + pre-merge-commit.d/git-block-merge-commit.sh
   pre-push          + pre-push.d/git-block-merge-commits.sh
   lib/common.sh  lib/run-guards.sh
+  required-checks            # optional: the status checks main must require
   …documented stubs for every other safe client-side hook (no-op until you add guards)
 ```
 
@@ -40,7 +41,9 @@ self-selecting at runtime — no per-project config.
   to squash+rebase only (`allow_merge_commit=false`). Owner-only; never blocks.
 - **`github-protect-main`** (pre-commit, fail-open) — protects the default
   branch: require a PR, enforced for admins, linear history, no force-push or
-  deletion. Owner-only; never blocks.
+  deletion. Owner-only; never blocks. Also keeps **required status checks** in
+  sync — auto-discovered from recent `pull_request` runs, or declared explicitly
+  (see below).
 - **`git-block-merge-commit`** (pre-merge-commit) — hard-blocks creating a merge
   commit locally.
 - **`git-block-merge-commits`** (pre-push) — hard-blocks pushing any range that
@@ -81,6 +84,76 @@ self-selecting at runtime — no per-project config.
 The rust guards run cargo via the **rustup shim** (`~/.cargo/bin/cargo`), so a
 repo's `rust-toolchain.toml` pin is honored and local fmt/clippy/metadata match
 CI — a bare `cargo` may be Homebrew's, which ignores the pin.
+
+## Declaring the required status checks (`.githooks/required-checks`)
+
+`github-protect-main` requires status checks **by check-run name**, discovered
+from recent `pull_request` runs. Discovery is additive and self-healing, but it
+is still a guess at what gates a PR, and one wrong guess is unrecoverable
+without admin: a required check that never reports reads as *pending* forever,
+and with `enforce_admins` on, nobody can merge and there is no failure to click.
+
+Two ways that happens:
+
+- a workflow whose `on: pull_request:` has **`paths:` filters** doesn't start at
+  all for a PR that touches nothing it watches → **no check run, blocked**;
+- a job that is renamed, or refactored into a matrix (`Build` → `Build (linux)`).
+
+(A job skipped by a job-level `if:` is *fine* — it still reports, with
+conclusion `skipped`, which satisfies protection. Only a workflow that never
+starts is fatal.) The guard heals the matrix-parent case from positive evidence,
+but it cannot see a workflow's path filters from the API.
+
+So a repo can just say what its gate is — an optional, committed file, one
+check-run name per line:
+
+```
+# .githooks/required-checks — what must pass before main takes a merge
+CI
+```
+
+- **A declaration wins over discovery, exactly** — it is also the only way to
+  *remove* a required check that discovery keeps re-adding.
+- **No file → nothing changes** (additive discovery, as before).
+- A declared name that has neither passed on the default branch nor is already
+  required is **skipped**, and applies the first time it goes green — so a typo
+  can't lock the repo. If nothing declared is eligible, the current checks stay.
+- Empty / comments-only is **ignored with a warning**, never read as "require
+  nothing" — a file blanked mid-edit must not silently unprotect the branch.
+- The single word `none` is the explicit way to require no checks.
+
+The idiomatic content is one always-run aggregate job that `needs:` the others:
+
+```yaml
+  ci:
+    name: CI
+    needs: [test, lint]
+    if: always()          # runs even when a dependency skipped
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for r in '${{ needs.test.result }}' '${{ needs.lint.result }}'; do
+            case "$r" in success|skipped) ;; *) exit 1 ;; esac
+          done
+```
+
+Then jobs can be renamed, split into a matrix, made conditional or
+path-filtered without ever stranding a merge.
+
+`install.sh` merges into an existing `.githooks/`, so this file survives
+upgrades.
+
+## Tests
+
+`tests/protect-main-required-checks.sh` covers the required-check selection —
+`gh` is stubbed, and the branch-protection PUT is captured instead of sent, so
+the assertions are on the checks the guard would actually require. Run it
+against another copy of the guards (a worktree of an older commit) to see a
+regression fail:
+
+```sh
+bash .claude/skills/github-guard/tests/protect-main-required-checks.sh [githooks-dir]
+```
 
 ## How to install into a target repo
 
