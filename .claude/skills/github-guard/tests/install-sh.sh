@@ -31,8 +31,14 @@ bad()  { fail=$((fail + 1)); printf '  FAIL  %s\n' "$1"; }
 is_exec()     { [ -x "$1" ] && ok "$2 is executable" || bad "$2 should be executable"; }
 not_exec()    { [ ! -x "$1" ] && ok "$2 is not executable" || bad "$2 should NOT be executable"; }
 exists()      { [ -f "$1" ] && ok "$2 exists" || bad "$2 missing"; }
-same_mode()   { [ "$(stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1")" = "$2" ] \
-                && ok "$3 kept mode $2" || bad "$3 changed mode (want $2, got $(stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"))"; }
+
+# GNU stat first, then BSD — NOT the other way round: on GNU, `stat -f` means
+# "file system status", so it SUCCEEDS and prints an inode table instead of a
+# mode, and a `||` fallback never fires. That reported `want 644, got <fs dump>`
+# on the first Linux run of this suite.
+file_mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null; }
+same_mode()   { got=$(file_mode "$1"); [ "$got" = "$2" ] \
+                && ok "$3 kept mode $2" || bad "$3 changed mode (want $2, got $got)"; }
 
 printf 'install.sh (%s)\n' "$skill"
 
