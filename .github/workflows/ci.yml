@@ -1,0 +1,73 @@
+name: CI
+
+# This repo had no CI at all, which is how three consecutive fixes to the same
+# guard (#23, #24, #25) each shipped a behaviour nobody could run. The guards are
+# shell scripts that talk to the GitHub API and then change branch protection, so
+# a regression here silently locks a repo's merges rather than failing loudly.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One job, so the required status check is a single name that always reports —
+# see .githooks/required-checks. Adding a second job means adding an always-run
+# aggregate that `needs:` both, not requiring another name.
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # What counts as a script: any file with a shebang. Git hooks are
+      # extensionless by necessity, so a name-based rule either misses the
+      # dispatchers or sweeps up data files that live beside them —
+      # .githooks/required-checks was linted as shell on the first run here.
+      - name: Collect scripts
+        run: |
+          set -euo pipefail
+          find . -path ./.git -prune -o -type f -print \
+          | while IFS= read -r f; do
+              IFS= read -r first < "$f" 2>/dev/null || continue
+              case "$first" in '#!'*) printf '%s\0' "$f" ;; esac
+            done > scripts.z
+          tr '\0' '\n' < scripts.z | sed 's/^/  /'
+          test -s scripts.z
+
+      - name: Syntax
+        run: xargs -0 -n1 bash -n < scripts.z && echo "all scripts parse"
+
+      - name: ShellCheck
+        run: |
+          set -euo pipefail
+          # -S error, not the default: the guards deliberately use idioms
+          # shellcheck flags at warning level — word-splitting a `set --` on
+          # purpose, glob patterns in `case`, `read -r` into a variable only some
+          # branches use, and the `A && B || C` fail-open idiom. Each is commented
+          # where it happens. Errors are real breakage; behaviour is covered by
+          # the test suite below rather than by style rules.
+          #
+          # -P SCRIPTDIR resolves `# shellcheck source=` relative to the script,
+          # not the working directory, so lib/common.sh is actually followed.
+          xargs -0 shellcheck -x -P SCRIPTDIR -S error < scripts.z
+          echo "shellcheck clean"
+
+      - name: github-guard tests
+        run: bash .claude/skills/github-guard/tests/protect-main-required-checks.sh
+
+      # The installer is what every guarded repo runs on upgrade. Prove it lands
+      # a working tree in a fresh repo instead of finding out per-project.
+      - name: install.sh into a throwaway repo
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          git init -q "$tmp"
+          bash .claude/skills/github-guard/install.sh "$tmp"
+          test -x "$tmp/.githooks/pre-commit"
+          test -x "$tmp/.githooks/pre-commit.d/github-protect-main.sh"
+          test -f "$tmp/.githooks/lib/common.sh"
+          [ "$(git -C "$tmp" config --get core.hooksPath)" = ".githooks" ]
+          echo "installer ok"
