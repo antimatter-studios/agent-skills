@@ -145,14 +145,21 @@ upgrades.
 
 ## Tests
 
-`tests/protect-main-required-checks.sh` covers the required-check selection —
-`gh` is stubbed, and the branch-protection PUT is captured instead of sent, so
-the assertions are on the checks the guard would actually require. Run it
-against another copy of the guards (a worktree of an older commit) to see a
-regression fail:
+- `tests/protect-main-required-checks.sh [githooks-dir]` — the required-check
+  selection. `gh` is stubbed and the branch-protection PUT is captured instead of
+  sent, so the assertions are on the checks the guard would actually require.
+- `tests/install-sh.sh [skill-dir]` — what `install.sh` lands in a target repo
+  and what it must leave alone (exec bits mirrored from the payload, a repo's own
+  `required-checks` and project-local extra guards untouched). It runs against
+  every recorded project on upgrade, so a mistake here is multiplied by the
+  number of guarded repos.
+
+Both take an optional path, so pointing them at another copy of the skill (a
+worktree of an older commit) shows a regression fail rather than asserting it.
 
 ```sh
-bash .claude/skills/github-guard/tests/protect-main-required-checks.sh [githooks-dir]
+bash .claude/skills/github-guard/tests/install-sh.sh
+bash .claude/skills/github-guard/tests/protect-main-required-checks.sh
 ```
 
 ## How to install into a target repo
