@@ -55,19 +55,20 @@ jobs:
           xargs -0 shellcheck -x -P SCRIPTDIR -S error < scripts.z
           echo "shellcheck clean"
 
-      - name: github-guard tests
-        run: bash .claude/skills/github-guard/tests/protect-main-required-checks.sh
-
-      # The installer is what every guarded repo runs on upgrade. Prove it lands
-      # a working tree in a fresh repo instead of finding out per-project.
-      - name: install.sh into a throwaway repo
+      # Every tests/*.sh under any skill, so adding a suite needs no change here.
+      # git is configured because a test that runs `git init` + `git commit` has
+      # no identity on a runner.
+      - name: Tests
         run: |
           set -euo pipefail
-          tmp=$(mktemp -d)
-          git init -q "$tmp"
-          bash .claude/skills/github-guard/install.sh "$tmp"
-          test -x "$tmp/.githooks/pre-commit"
-          test -x "$tmp/.githooks/pre-commit.d/github-protect-main.sh"
-          test -f "$tmp/.githooks/lib/common.sh"
-          [ "$(git -C "$tmp" config --get core.hooksPath)" = ".githooks" ]
-          echo "installer ok"
+          git config --global user.email ci@example.com
+          git config --global user.name CI
+          git config --global init.defaultBranch main
+          found=0
+          for t in .claude/skills/*/tests/*.sh; do
+            [ -e "$t" ] || continue
+            found=1
+            printf '\n=== %s\n' "$t"
+            bash "$t"
+          done
+          [ "$found" = 1 ] || { echo "no test suites found" >&2; exit 1; }

@@ -30,10 +30,19 @@ copy_into() {
   fi
   mkdir -p "$target/.githooks"
   cp -R "$src/." "$target/.githooks/"
-  # Restore exec bits (cp may drop them); lib/common.sh is sourced, so no +x.
-  find "$target/.githooks" -maxdepth 1 -type f ! -name '*.*' -exec chmod +x {} +
-  chmod +x "$target/.githooks/lib/run-guards.sh" 2>/dev/null || true
-  find "$target/.githooks" -type f -path '*.d/*.sh' -exec chmod +x {} + 2>/dev/null || true
+  # Restore exec bits (cp may drop them) from the SOURCE tree, which is the
+  # authority on which payload files are executable — dispatchers and guards yes,
+  # lib/common.sh no, since it is sourced. Only files the payload actually ships
+  # are touched.
+  #
+  # The rule used to be name-based (`! -name '*.*'` at depth 1, then `*.d/*.sh`).
+  # Git hooks are extensionless by necessity, so that also matched a repo's own
+  # data files living beside them: it marked .githooks/required-checks executable
+  # in 21 repos in one upgrade run.
+  ( cd "$src" && find . -type f -perm -u+x -print0 ) \
+    | while IFS= read -r -d '' rel; do
+        chmod +x "$target/.githooks/${rel#./}" 2>/dev/null || true
+      done
   if [ -z "$existing" ] || [ "$existing" = ".githooks" ]; then
     git -C "$target" config core.hooksPath .githooks
   fi
