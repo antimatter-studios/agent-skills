@@ -1,6 +1,6 @@
 ---
 name: github-guard
-description: Install github-guard's composable git-hook guards into a repository. Ships a run-parts dispatcher for every safe client-side git hook plus a catalog of drop-in guards — linear history (squash+rebase only, block local merge commits), protect the default branch (require PRs, no direct pushes), and auto-fmt + clippy + reproducible-release dependency-pinning for Rust. Use when the user asks to install/add github-guard or merge-guard, protect a repo from merge commits or direct pushes to main, enforce linear history or squash-only merges, or add pre-commit fmt/clippy guards.
+description: Install github-guard's composable git-hook guards into a repository. Ships a run-parts dispatcher for every safe client-side git hook plus a catalog of drop-in guards — linear history (squash-only merges, block local merge commits), protect the default branch (require PRs, no direct pushes), and auto-fmt + clippy + reproducible-release dependency-pinning for Rust. Use when the user asks to install/add github-guard or merge-guard, protect a repo from merge commits or direct pushes to main, enforce linear history or squash-only merges, or add pre-commit fmt/clippy guards.
 ---
 
 # github-guard
@@ -38,7 +38,11 @@ self-selecting at runtime — no per-project config.
 ## Shipped guards
 
 - **`github-merge-squash-only`** (pre-commit, fail-open) — heals the GitHub repo
-  to squash+rebase only (`allow_merge_commit=false`). Owner-only; never blocks.
+  to SQUASH ONLY — `allow_squash_merge=true`, `allow_merge_commit=false`,
+  `allow_rebase_merge=false`. One commit per pull request: a branch's WIP history is
+  noise once it lands, and the squash message is written deliberately instead of
+  composed by GitHub from whatever the commits happened to say. Squash locally first
+  when a branch is messy, so that message is yours. Owner-only; never blocks.
 - **`github-protect-main`** (pre-commit, fail-open) — protects the default
   branch: require a PR, enforced for admins, linear history, no force-push or
   deletion. Owner-only; never blocks. Also keeps **required status checks** in
