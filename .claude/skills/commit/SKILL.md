@@ -10,15 +10,27 @@ Create small, topic-focused commits from the current uncommitted changes. Each c
 
 ## Step 0: Ensure git hooks are installed
 
-Before doing anything else, check whether the repo has a `.githooks/` directory. If it exists and contains an `install-hooks.sh` script, run it:
+Before doing anything else, make sure the repo's hooks will actually fire on the commits you are about to create. Two conventions exist in the wild; handle both.
+
+**1. The repo ships an installer.** Run whichever exists:
 
 ```bash
 ./scripts/install-hooks.sh 2>/dev/null || .githooks/install-hooks.sh 2>/dev/null || true
 ```
 
-Check `scripts/install-hooks.sh` first, then `.githooks/install-hooks.sh`. This is idempotent — safe to run every time. It ensures `core.hooksPath` is set so pre-commit checks (fmt, clippy, lint, etc.) actually fire on the commits you're about to create.
+Check `scripts/install-hooks.sh` first, then `.githooks/install-hooks.sh`.
 
-If neither path exists, skip silently and continue.
+**2. The repo ships a committed `.githooks/` with no installer** (github-guard's layout — its `install.sh` lives in the skill directory, not in the repos it guards). Here the guards travel with the repo but `core.hooksPath` is *per-clone local config*, so a fresh clone has every hook on disk and none of them active. Point git at them:
+
+```bash
+[ -d .githooks ] && [ -z "$(git config --get core.hooksPath)" ] && git config core.hooksPath .githooks
+```
+
+Only set it when unset — if `core.hooksPath` already points somewhere else, that is a deliberate choice and overwriting it would disable the hooks the user actually wants.
+
+Both steps are idempotent, so run them every time. Together they ensure pre-commit checks (fmt, clippy, lint, secret scans) fire rather than silently no-op.
+
+If there is no `.githooks/` and no installer, skip silently and continue.
 
 ## Step 1: Analyse the diff
 
