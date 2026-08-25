@@ -56,6 +56,11 @@ case "$url" in
       *'"success"'*)          printf '%s' "${GH_PASSED:-}" ;;
       *)                      printf '%s' "${GH_HEAD:-}" ;;
     esac ;;
+  */contents/.githooks/required-checks*)
+    # The declaration is read from the repo's default branch on the SERVER, not
+    # the working tree, so the stub is where it lives. Unset = no such file.
+    [ -n "${GH_DECLARATION:-}" ] || exit 1
+    printf '%s\n' "$GH_DECLARATION" ;;
   */branches/*/protection)
     [ "${GH_PROTECTED:-1}" = 1 ] || exit 1
     printf '%s\n%s\n%s\n%s\n' "${GH_REVIEWS:-true}" "${GH_ADMINS:-true}" \
@@ -68,17 +73,21 @@ chmod +x "$root/bin/gh"
 PATH="$root/bin:$PATH"
 
 # ---- harness -----------------------------------------------------------------
-# Each case gets a fresh repo + guard copy. `declared` is the contents of
-# .githooks/required-checks, or the literal ABSENT for no file at all.
+# Each case gets a fresh repo + guard copy. `declared` is what the default
+# branch's .githooks/required-checks says, or the literal ABSENT for no such
+# file; it is served by the gh stub, because that is where the guard reads it
+# from. An optional third argument writes a DIFFERENT file into the working
+# tree, which the guard must ignore.
 run_case() {
-  local name="$1" declared="$2" n dir
+  local name="$1" declared="$2" worktree="${3:-}" n dir
   n=$((pass + fail + 1)); dir="$root/case$n"
   mkdir -p "$dir"
   git -C "$dir" init -q 2>/dev/null
   git -C "$dir" remote add origin git@github.com:testowner/testrepo.git
   mkdir -p "$dir/.githooks"
   cp -R "$src/." "$dir/.githooks/"
-  [ "$declared" = ABSENT ] || printf '%s\n' "$declared" > "$dir/.githooks/required-checks"
+  if [ "$declared" = ABSENT ]; then unset GH_DECLARATION; else export GH_DECLARATION="$declared"; fi
+  [ -z "$worktree" ] || printf '%s\n' "$worktree" > "$dir/.githooks/required-checks"
   export GH_CAPTURE="$dir/put.json"
   ( cd "$dir" && bash .githooks/pre-commit.d/github-protect-main.sh ) >"$dir/out" 2>"$dir/err"
   CASE_NAME="$name"; CASE_DIR="$dir"
@@ -175,14 +184,26 @@ export GH_CURRENT='[{"context":"CI"}]'
 run_case 'already correct → no write' 'CI'
 expect_checks NONE
 
-# 9. Multiple declared checks, and one that is not eligible is dropped while the
-#    eligible ones still apply.
+# 9. A PARTIAL declaration must not weaken the gate. `Nope` is not eligible yet,
+#    so the declared set is not yet the whole story — exact-replacing here would
+#    DROP `Workflows`, which the full declaration never asked to remove, leaving
+#    a weaker gate than before the declaration was written. Union until every
+#    declared check is eligible; only then does "declared wins, exactly" apply.
 export GH_REVIEWS=false
 export GH_PASSED=$'CI\nFormulae\n'
 export GH_CURRENT='[{"context":"Workflows"}]'
-run_case 'partial eligibility keeps only the eligible declarations' $'CI\nFormulae\nNope'
-expect_checks '["CI","Formulae"]'
+run_case 'a partial declaration unions rather than stripping' $'CI\nFormulae\nNope'
+expect_checks '["CI","Formulae","Workflows"]'
 expect_stderr 'not required yet'
+
+# 10. The declaration is a PRIVILEGED input — `none` strips every required check
+#     — so it must come from the trusted default branch, never from whatever is
+#     checked out. Reviewing a contributor's branch locally and committing while
+#     it is checked out must not let that branch unprotect main.
+export GH_PASSED=$'CI\nFormulae\n'
+export GH_CURRENT='[{"context":"CI"}]'
+run_case 'a working-tree declaration cannot unprotect the branch' 'CI' 'none'
+expect_checks '["CI"]'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

@@ -118,10 +118,24 @@ CI
 
 - **A declaration wins over discovery, exactly** — it is also the only way to
   *remove* a required check that discovery keeps re-adding.
+- **It is read from the default branch on the server, not the working tree.**
+  The file can strip required checks, and `none` strips them all, so it is a
+  privileged input and must come from a trusted source. This guard runs
+  pre-commit against whatever happens to be checked out; reading the working
+  tree would let an untrusted branch — a contributor PR pulled down for review —
+  unprotect the branch the moment the owner commits while it is checked out.
+  Reading the committed default-branch copy means a policy change only takes
+  effect once it is merged. Unreachable (404, offline, no `jq`) falls through to
+  discovery — never to "require nothing".
 - **No file → nothing changes** (additive discovery, as before).
 - A declared name that has neither passed on the default branch nor is already
   required is **skipped**, and applies the first time it goes green — so a typo
   can't lock the repo. If nothing declared is eligible, the current checks stay.
+- While any declared check is still skipped, the eligible ones are **unioned**
+  with what is already required rather than replacing it. A half-eligible
+  declaration would otherwise drop checks the full declaration never asked to
+  remove, leaving a weaker gate than before it was written. The exact
+  "declared wins" replace applies only once every declared check is eligible.
 - Empty / comments-only is **ignored with a warning**, never read as "require
   nothing" — a file blanked mid-edit must not silently unprotect the branch.
 - The single word `none` is the explicit way to require no checks.
