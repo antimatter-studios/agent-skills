@@ -5,7 +5,7 @@
 # flags logic smells, not layout, so a human should look rather than have it
 # auto-rewritten.
 set -u
-dir=$(cd "$(dirname "$0")/.." && pwd)   # .githooks/
+dir=$(cd "$(dirname "$0")/.." && pwd)   # the hooks dir
 # shellcheck source=../lib/common.sh
 . "$dir/lib/common.sh"
 

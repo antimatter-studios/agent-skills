@@ -19,7 +19,7 @@
 #
 # Bypass once (NOT recommended): git commit --no-verify
 set -u
-dir=$(cd "$(dirname "$0")/.." && pwd)   # .githooks/
+dir=$(cd "$(dirname "$0")/.." && pwd)   # the hooks dir
 # shellcheck source=../lib/common.sh
 . "$dir/lib/common.sh"
 

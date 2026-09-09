@@ -3,7 +3,7 @@
 # Ensure the GitHub repo allows only squash + rebase merges (no merge commits),
 # so PRs always land linear. Owner-only, fail-open — NEVER blocks the commit.
 set -u
-dir=$(cd "$(dirname "$0")/.." && pwd)   # .githooks/
+dir=$(cd "$(dirname "$0")/.." && pwd)   # the hooks dir
 # shellcheck source=../lib/common.sh
 . "$dir/lib/common.sh"
 

@@ -12,7 +12,7 @@
 # (its staged snapshot commits unformatted) with a notice — never a silent
 # sweep.
 set -u
-dir=$(cd "$(dirname "$0")/.." && pwd)   # .githooks/
+dir=$(cd "$(dirname "$0")/.." && pwd)   # the hooks dir
 # shellcheck source=../lib/common.sh
 . "$dir/lib/common.sh"
 

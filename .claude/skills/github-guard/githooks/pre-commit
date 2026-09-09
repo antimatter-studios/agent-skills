@@ -5,7 +5,7 @@
 # Use for:  Linting, formatting, and fast checks on the staged snapshot.
 # Blocking: yes (non-zero aborts the commit)
 #
-# Dispatcher: runs every executable script in  .githooks/pre-commit.d/  in lexical
+# Dispatcher: runs every executable script in  <hooks-dir>/pre-commit.d/  in lexical
 # order. Add behaviour by dropping a guard script there; remove it by deleting
 # the file (or `chmod -x`). No pre-commit.d/ (or an empty one) = no-op. Managed by
 # github-guard — edit guards in the .d/ dir, not this file.

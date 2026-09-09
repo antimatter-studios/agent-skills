@@ -10,7 +10,7 @@ or delete. Add behaviour by adding a file; remove misbehaving behaviour by
 deleting it. Nothing monolithic.
 
 ```
-.githooks/
+.git/hooks/                        # per-clone, OUTSIDE the working tree
   pre-commit                       # dispatcher → runs pre-commit.d/* in order
   pre-commit.d/
     github-merge-squash-only.sh    # GitHub: squash+rebase only
@@ -37,23 +37,32 @@ project"*, or run the installer directly:
 bash .claude/skills/github-guard/install.sh /path/to/repo   # or no arg = cwd
 ```
 
-Commit the resulting `.githooks/` so it travels with the repo. `core.hooksPath`
-is per-clone local config, so each fresh clone re-runs the installer (or
-`git config core.hooksPath .githooks`).
+The guards land in `<repo>/.git/hooks`, and the installer clears
+`core.hooksPath` (which would otherwise override them). Nothing to commit and
+nothing to review — the hooks are per-clone, so each fresh clone re-runs the
+installer.
+
+**Why not an in-tree `.githooks/`?** Git resolves a hook path when it runs the
+hook, which for a checkout is *after* the working tree has been rewritten. With
+the hooks inside the tree, `git checkout some-forks-pr` replaces the hook that
+runs on your next commit: their code, your credentials, your checkout. Reviewing
+contributions locally is the normal case, so the guards live where no ref can
+reach them.
 
 ### Self-hosting (this repo)
 
-github-guard guards itself, but it does **not** use a copied `.githooks/` — its
-canonical hooks already live in `.claude/skills/github-guard/githooks/`, so a
-copy would just drift every time we edit a guard (the exact silly error this
-tool exists to stop). Instead, point git straight at the source:
+github-guard guards itself the same way every other repo does:
 
 ```sh
-git config core.hooksPath .claude/skills/github-guard/githooks
+bash .claude/skills/github-guard/install.sh .
 ```
 
-Run that once per clone. Editing a guard then takes effect immediately — no
-re-install. (Every *other* repo gets the standard `install.sh` layout above.)
+Re-run it after editing a guard. This repo used to point `core.hooksPath`
+straight at `.claude/skills/github-guard/githooks` so an edit took effect with no
+re-install — but that is the in-tree arrangement above, and here it is the worst
+case of it: the hooks git executes would be whatever the branch under review says
+they are, in the repo whose job is guarding all the others. The drift that recipe
+avoided is gone anyway, since the installed copy is no longer a committed one.
 
 ## Guards it ships
 
@@ -92,7 +101,7 @@ everywhere and each guard decides if it's relevant.
 
 github-guard ships a documented dispatcher stub for every **client-side** hook
 that is safe to no-op (present-and-exit-0 behaves the same as absent), so the
-`.githooks/` directory doubles as a catalog you can learn from. Open any stub to
+shipped `githooks/` payload doubles as a catalog you can learn from. Open any stub to
 read when it fires and what it's for.
 
 **Shipped as dispatchers:** `applypatch-msg`, `pre-applypatch`,
@@ -108,7 +117,7 @@ read when it fires and what it's for.
 | `fsmonitor-watchman` | Only invoked when `core.fsmonitor` points at it, and speaks a specific protocol; a generic stub would break fsmonitor. |
 | `proc-receive` | Speaks a version-negotiation protocol over stdin/stdout; not a no-op-safe guard point. |
 | `reference-transaction`, `post-index-change` | Fire on nearly every ref/index update — too hot to host a per-event dispatcher by default. Add one yourself if you truly need it. |
-| `pre-receive`, `update`, `post-receive`, `post-update` | **Server-side** — they run on the receiving repo, not via a local `core.hooksPath`, so a local file would never fire. |
+| `pre-receive`, `update`, `post-receive`, `post-update` | **Server-side** — they run on the receiving repo, not from a local hooks directory, so a local file would never fire. |
 
 ## Why a hook (and not only a GitHub ruleset)
 

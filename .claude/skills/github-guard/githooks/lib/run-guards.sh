@@ -3,7 +3,7 @@
 #
 #   run-guards.sh <hook-name> [hook-args...]      (the hook's stdin is passed through)
 #
-# It runs every executable script in  <.githooks>/<hook-name>.d/  in lexical
+# It runs every executable script in  <hooks-dir>/<hook-name>.d/  in lexical
 # order, feeding each guard the original hook args and stdin. A guard that
 # exits non-zero blocks the operation: github-guard names the offending guard
 # and stops (later guards don't run). An empty/missing .d directory is a no-op,
