@@ -18,7 +18,7 @@
 # release notes from CHANGELOG.md. A release pipeline can call this, so the
 # changelog this guard enforces is the single source of truth for release bodies.
 set -u
-dir=$(cd "$(dirname "$0")/.." && pwd)   # .githooks/
+dir=$(cd "$(dirname "$0")/.." && pwd)   # the hooks dir
 # shellcheck source=../lib/common.sh
 . "$dir/lib/common.sh"
 

@@ -137,7 +137,7 @@ path, and — on upgrade — the previous `source_commit` for reference.
 
 Some skills don't just live in `~/.claude/skills/` — they **copy a payload into
 individual git repos** (e.g. github-guard copies its `githooks/` tree into each
-repo's `.githooks/`). install-skill owns the **registry of where that happened**
+repo's `.git/hooks`). install-skill owns the **registry of where that happened**
 and the **fan-out to re-sync** them; the skill itself only ships a **single-target
 installer** — `~/.claude/skills/<skill>/install.sh <project>` — that deploys into
 exactly one repo and is registry-agnostic. *How* a payload is laid down is the
@@ -148,16 +148,18 @@ skill's business; *tracking it and re-syncing* is install-skill's. This is gener
 
 1. Run the skill's single-target installer against the target repo:
    `~/.claude/skills/<skill>/install.sh <project>` (it copies the payload in — for
-   github-guard, `.githooks/` + `core.hooksPath`).
+   github-guard, into `<project>/.git/hooks`, with `core.hooksPath` cleared so it
+   cannot override them).
 2. Record it: append the absolute `<project>` path to `installed_into` in
    `~/.config/install-skill/<skill>.json` (read-modify-write, dedup; create the
    file/field if absent). This is the **only** place `installed_into` is written.
-3. Remind the user to commit the payload (e.g. `.githooks/`) so it travels with
-   the repo — **and, for github-guard, because the commit is what ACTIVATES the
-   `github-*` guards**: they live in `pre-commit.d/` and only heal the GitHub repo
-   (branch protection, squash-only) when a commit lands on the default branch.
-   Until committed, the deploy is only half-done. See github-guard's SKILL.md
-   ("How to install into a target repo", step 4) for the bootstrap caveat.
+3. Report whether the payload needs committing — that is per-skill. github-guard's
+   does **not**: its hooks live in `.git/hooks`, outside the working tree, precisely
+   so no branch can rewrite the code git is about to execute. Its `github-*` guards
+   still only heal the GitHub repo (branch protection, squash-only) once a commit
+   lands on the default branch, so the deploy is not fully in effect until the next
+   such commit. See github-guard's SKILL.md ("How to install into a target repo",
+   step 4).
 
 ### Upgrade all deployments of a skill
 
@@ -167,15 +169,20 @@ Re-sync the current payload into every recorded project:
    → nothing to do.
 2. For each recorded path:
    - **Gone / not a git repo** → report and **prune** it from `installed_into`.
-   - **Not actually this skill's deployment** (the payload marker is missing — e.g.
-     no `.githooks/lib/run-guards.sh` for github-guard) → report and prune; never
-     clobber an unrelated setup that merely shares the path.
+   - **Not actually this skill's deployment** (the payload marker is missing — for
+     github-guard, NEITHER `.git/hooks/lib/run-guards.sh` nor the pre-migration
+     `.githooks/lib/run-guards.sh`) → report and prune; never clobber an unrelated
+     setup that merely shares the path. Accept both markers: a repo installed
+     before the hooks moved out of the working tree has only the old one, and a
+     marker check that recognised just the new path would prune every guarded repo
+     on the first sweep after the move.
    - **Valid** → re-run the skill's single-target installer (full re-sync; a
      merging copy keeps project-local *extra* files). Before overwriting a payload
      file the project **locally edited** (differs in content, not just absent),
      show the `diff` and ask — overwrite / skip / abort — per the drift rules above.
-3. Write back the pruned `installed_into`. Report upgraded / skipped / pruned, and
-   remind the user each touched repo now has uncommitted payload changes to commit.
+3. Write back the pruned `installed_into`. Report upgraded / skipped / pruned. If
+   the payload lands inside the working tree (github-guard's no longer does),
+   remind the user each touched repo now has uncommitted changes to commit.
 
 ### Running the fan-out robustly (shell-portability guardrails)
 

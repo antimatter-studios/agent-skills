@@ -11,7 +11,7 @@ into a repo while you (or an agent) work in it. Each git hook is a thin
 each guard is a single-purpose script you drop in or delete.
 
 ```
-.githooks/
+.git/hooks/                  # per-clone, OUTSIDE the working tree: no branch can rewrite it
   pre-commit                 # dispatcher → runs pre-commit.d/* in order
   pre-commit.d/
     github-merge-squash-only.sh
@@ -22,9 +22,20 @@ each guard is a single-purpose script you drop in or delete.
   pre-merge-commit  + pre-merge-commit.d/git-block-merge-commit.sh
   pre-push          + pre-push.d/git-block-merge-commits.sh
   lib/common.sh  lib/run-guards.sh
-  required-checks            # optional: the status checks main must require
   …documented stubs for every other safe client-side hook (no-op until you add guards)
+
+.githooks/                   # the only github-guard file still IN the repo
+  required-checks            # optional: the status checks main must require
 ```
+
+**Where the hooks live, and why it matters.** Git resolves a hook path when it
+runs the hook — for a checkout, *after* the working tree has been rewritten. An
+in-tree hooks directory reached via `core.hooksPath` therefore lets any branch
+you check out replace the hook that runs next, with your credentials and your
+gh token. So `install.sh` writes into `<repo>/.git/hooks` and CLEARS
+`core.hooksPath`. `required-checks` is the exception that stays in the tree: it
+is data, not code, and `github-protect-main` reads it from the default branch on
+the **server**, never from the checkout.
 
 **Naming:** guards are `<topic>-<name>.sh`. The topic prefix groups them and
 shows the domain at a glance (`github-*`, `git-*`, `rust-*`, …). They run in
@@ -158,8 +169,8 @@ The idiomatic content is one always-run aggregate job that `needs:` the others:
 Then jobs can be renamed, split into a matrix, made conditional or
 path-filtered without ever stranding a merge.
 
-`install.sh` merges into an existing `.githooks/`, so this file survives
-upgrades.
+`install.sh` never writes into the working tree, so this file is untouched by an
+install or an upgrade.
 
 ## Tests
 
@@ -167,10 +178,14 @@ upgrades.
   selection. `gh` is stubbed and the branch-protection PUT is captured instead of
   sent, so the assertions are on the checks the guard would actually require.
 - `tests/install-sh.sh [skill-dir]` — what `install.sh` lands in a target repo
-  and what it must leave alone (exec bits mirrored from the payload, a repo's own
-  `required-checks` and project-local extra guards untouched). It runs against
-  every recorded project on upgrade, so a mistake here is multiplied by the
-  number of guarded repos.
+  and what it must leave alone (hooks in `.git/hooks`, `core.hooksPath` cleared,
+  exec bits mirrored from the payload, a repo's own `required-checks` and
+  project-local extra guards untouched). It runs against every recorded project
+  on upgrade, so a mistake here is multiplied by the number of guarded repos.
+  Its last case is the negative control: a branch carrying a hostile
+  `.githooks/pre-commit` is checked out and must not execute — and the case
+  first proves the same attack DOES fire through `core.hooksPath`, so an absent
+  marker means the hook was ignored rather than never run.
 
 Both take an optional path, so pointing them at another copy of the skill (a
 worktree of an older commit) shows a regression fail rather than asserting it.
@@ -182,9 +197,9 @@ bash .claude/skills/github-guard/tests/protect-main-required-checks.sh
 
 ## How to install into a target repo
 
-The guards are **copied** into the repo's `.githooks/` as real files and
-committed — so anyone who clones the repo gets them (no symlinks, nothing
-pointing outside the repo). `install.sh` deploys into **one** repo; recording the
+The guards are **copied** into the repo's `.git/hooks` as real files — per-clone,
+outside the working tree, so no branch can rewrite the hook that runs next.
+Nothing is committed. `install.sh` deploys into **one** repo; recording the
 deployment and re-syncing every project later are handled by **install-skill**,
 which owns the `installed_into` registry (see *Upgrading every guarded project*).
 
@@ -192,32 +207,41 @@ which owns the `installed_into` registry (see *Upgrading every guarded project*)
    (`git rev-parse --show-toplevel`); if cwd isn't a git repo, ask for the path.
    State the resolved path before installing.
 2. **Check for a custom pre-commit.** If the target already has a custom
-   `.githooks/pre-commit` (a non-dispatcher), warn that the dispatcher replaces
+   `.git/hooks/pre-commit` (a non-dispatcher), warn that the dispatcher replaces
    it — its behavior should move into a `pre-commit.d/` guard (fmt/clippy and
    reproducible-release dep-pinning are already covered by the `rust-*` guards).
+   The installer also NAMES any executable the repo still keeps in a tracked
+   `.githooks/`: those used to run and no longer do. It refuses to import them
+   for you — copying executables out of the working tree is the hole this layout
+   closes — so move each into `.git/hooks/<hook>.d/`, or delete it.
 3. **Run the installer:**
    ```sh
    bash ~/.claude/skills/github-guard/install.sh <target-repo-root>
    ```
-   It copies the guards into `<repo>/.githooks/` and sets `core.hooksPath`. It
+   It copies the guards into `<repo>/.git/hooks` and clears `core.hooksPath`. It
    does **not** write any registry (see the next step).
 4. **Report & explain:**
-   - **Commit `.githooks/` — not optional; this ACTIVATES the github-* guards.**
-     `github-protect-main` and `github-merge-squash-only` live in `pre-commit.d/`,
-     so they only run when a commit lands on the default branch. Until you commit,
-     the GitHub-side settings are NEVER applied — squash-only stays off and the
-     default branch stays unprotected; the install is only half-done. Verify:
-     `allow_merge_commit` is now `false` and `branches/<default>/protection`
-     returns 200 (was 404).
-   - **Bootstrap caveat:** that same first commit makes the default branch require
-     a PR (admin-enforced, no direct push). So the `.githooks/` commit itself can
-     no longer be pushed straight to the default branch — land it via a PR.
+   - **Nothing to commit.** The hooks are per-clone by design. Assert the END
+     STATE rather than the action — an install that leaves `core.hooksPath` set
+     is inert, because that setting overrides `.git/hooks` and nothing says so:
+     ```sh
+     git -C <repo> config --get core.hooksPath   # must print nothing
+     test -x <repo>/.git/hooks/pre-commit        # must succeed
+     ```
+   - **The github-* guards activate on the next commit.** `github-protect-main`
+     and `github-merge-squash-only` live in `pre-commit.d/` and only act when a
+     commit lands on the default branch. Until then the GitHub-side settings are
+     NEVER applied — squash-only stays off, the default branch stays unprotected.
+     Verify after that commit: `allow_merge_commit` is now `false` and
+     `branches/<default>/protection` returns 200 (was 404).
+   - **Bootstrap caveat:** that same commit makes the default branch require a PR
+     (admin-enforced, no direct push), so land subsequent work via a PR.
    - **Record the deployment** so it can be re-synced later: install-skill
      appends `<repo>` to `installed_into`. Simplest path: ask install-skill to
      *"deploy github-guard into `<repo>`"*, which runs this installer **and**
      records it in one step.
-   - `core.hooksPath` is per-clone local config — each fresh clone runs
-     `git config core.hooksPath .githooks` (or re-runs the installer).
+   - A fresh clone has no hooks until someone re-runs the installer — that is the
+     cost of hooks a branch cannot rewrite, and it is per-clone, not per-branch.
    - The `github-*` guards need `gh` authed with admin and only act on accounts
      the user owns; otherwise they skip silently.
 
@@ -232,8 +256,8 @@ single-target only:
 It walks `installed_into`, re-runs this installer per project (pruning any whose
 directory is gone or that isn't actually a github-guard install), preserves
 project-local extra guards, and diffs+asks before overwriting a locally-edited
-guard. Each project keeps its own committed copy — review and commit the updated
-`.githooks/` per repo.
+guard. Nothing to commit per repo — the sweep rewrites each clone's
+`.git/hooks` and clears any leftover `core.hooksPath`.
 
 ## Add / remove / disable a guard
 
