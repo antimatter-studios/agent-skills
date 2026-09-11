@@ -158,6 +158,17 @@ git -C "$repo" add -A .githooks
 out=$(status "$repo")
 says "1 tracked copy in" "$out" "one copy is reported in the singular"
 
+# A declaration directory is not a hook directory: an executable dropped in
+# .github-guard/ never runs either, and nothing else would say so.
+target
+mkdir -p "$repo/.github-guard"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/.github-guard/repo-own.sh"
+chmod +x "$repo/.github-guard/repo-own.sh"
+printf 'tmp\n' > "$repo/.github-guard/private-paths"
+out=$(status "$repo")
+says     ".github-guard/repo-own.sh no longer runs" "$out" "an executable in the declaration directory is named"
+says_not private-paths "$out" x "and the declarations beside it are not"
+
 # Untracked is not the same finding: one rm away, and it ships to nobody.
 target
 mkdir -p "$repo/.githooks"

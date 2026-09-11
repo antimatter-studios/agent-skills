@@ -152,21 +152,23 @@ for target in "${repos[@]}"; do
   shadow=0
   while IFS= read -r t; do
     [ -n "$t" ] || continue
-    [ -f "$src/${t#.githooks/}" ] && shadow=$((shadow + 1))
-  done < <(git -C "$target" ls-files .githooks 2>/dev/null)
+    rel=${t#.githooks/}; rel=${rel#.github-guard/}
+    [ -f "$src/$rel" ] && shadow=$((shadow + 1))
+  done < <(git -C "$target" ls-files .githooks .github-guard 2>/dev/null)
 
   # Executables under a tracked .githooks/ are guards this layout no longer runs.
   # required-checks is data, is 644, and correctly does not appear here.
   stranded=0
-  if [ -d "$target/.githooks" ]; then
-    orphans=$( (cd "$target/.githooks" && find . -type f -perm -u+x | sed 's#^\./##' | sort) )
+  for d in .githooks .github-guard; do
+    [ -d "$target/$d" ] || continue
+    orphans=$( (cd "$target/$d" && find . -type f -perm -u+x | sed 's#^\./##' | sort) )
     while IFS= read -r o; do
       [ -n "$o" ] || continue
       [ -f "$src/$o" ] && continue
       stranded=$((stranded + 1))
-      notes+=(".githooks/$o no longer runs")
+      notes+=("$d/$o no longer runs")
     done <<<"$orphans"
-  fi
+  done
 
   # One word per repo, and the two conditions that are NOT file drift get their
   # own words rather than sharing one: an override means the installed files are

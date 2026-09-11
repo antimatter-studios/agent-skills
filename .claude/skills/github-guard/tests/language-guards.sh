@@ -192,6 +192,27 @@ git -C "$repo" add -f corpus/sample.bin
 out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
 [ "$rc" = 1 ] && ok "an in-tree declaration is honoured too" || bad "in-tree declaration exited $rc"
 
+# The declaration belongs in .github-guard/, since .githooks/ holds no hooks
+# any more. The old location still works, and says so, so no repo has to move
+# its file in the same commit as anything else.
+setup
+mkdir -p "$repo/.github-guard" "$repo/corpus"
+printf 'corpus\n' > "$repo/.github-guard/private-paths"
+printf 'x\n' > "$repo/corpus/sample.bin"
+git -C "$repo" add -f corpus/sample.bin
+out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
+[ "$rc" = 1 ] && ok ".github-guard/ is where a declaration is read from" || bad ".github-guard declaration ignored (exit $rc)"
+says_not "move it" "$out" x "and the new location draws no migration notice"
+
+setup
+mkdir -p "$repo/.githooks" "$repo/corpus"
+printf 'corpus\n' > "$repo/.githooks/private-paths"
+printf 'x\n' > "$repo/corpus/sample.bin"
+git -C "$repo" add -f corpus/sample.bin
+out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
+[ "$rc" = 1 ] && ok "the superseded location still works" || bad "a .githooks declaration was dropped (exit $rc)"
+says "move it to .github-guard/private-paths" "$out" "and the move is spelled out"
+
 # Nothing declared: the guard has no business guessing.
 setup
 mkdir -p "$repo/tmp"; printf 'x\n' > "$repo/tmp/thing.bin"
@@ -201,6 +222,14 @@ out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
 says_not refusing "$out" x "and says nothing at all"
 
 # --- generated-normalise ----------------------------------------------------
+setup
+mkdir -p "$repo/.github-guard" "$repo/gen"
+printf 'gen\n' > "$repo/.github-guard/generated-paths"
+printf 'line   \n' > "$repo/gen/out.ts"
+git -C "$repo" add gen/out.ts
+out=$(run pre-commit.d/generated-normalise.sh)
+staged_is gen/out.ts "line" "generated-normalise reads .github-guard/generated-paths too"
+
 setup
 mkdir -p "$repo/gen" "$repo/src"
 printf 'line   \n' > "$repo/gen/out.ts"
