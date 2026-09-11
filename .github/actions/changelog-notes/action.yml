@@ -1,0 +1,68 @@
+name: Changelog release notes
+description: >-
+  Turn a version's CHANGELOG.md section into a release-notes file, using the
+  same extraction the github-guard pre-push guard enforces the changelog with.
+
+# WHY AN ACTION AND NOT A SCRIPT IN EACH REPO
+# -------------------------------------------
+# The extraction lives in github-guard's git-changelog guard, which blocks a
+# version tag whose changelog section is missing. Generating the release body
+# from that same code is what makes the changelog the single source of truth:
+# the thing that gates the tag and the thing that writes the release notes
+# cannot disagree.
+#
+# But the guard is installed into .git/hooks, deliberately outside the working
+# tree, and a CI checkout cannot see it. Two repos worked around that by
+# keeping an old copy of the whole hook tree in-tree purely so their release
+# workflow could call one script out of it — which left them carrying 30-odd
+# dead files, and their copy of the extraction slowly diverging from the one
+# the guard uses.
+#
+# An action referenced by `uses:` gets its own repository checked out by the
+# runner, so the script is reachable with no copy in the caller at all. One
+# implementation, used by the local guard and by every release pipeline.
+inputs:
+  tag:
+    description: 'Version tag to extract, with or without the leading v (e.g. v1.4.0).'
+    required: true
+  path:
+    description: 'Path to the repository whose CHANGELOG.md is read.'
+    required: false
+    default: '.'
+  output-file:
+    description: 'Where to write the notes. Defaults to a file under RUNNER_TEMP.'
+    required: false
+    default: ''
+outputs:
+  file:
+    description: 'Path to the file the notes were written to.'
+    value: ${{ steps.extract.outputs.file }}
+runs:
+  using: composite
+  steps:
+    - id: extract
+      shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+        REPO_PATH: ${{ inputs.path }}
+        OUT: ${{ inputs.output-file }}
+      run: |
+        set -euo pipefail
+        out=${OUT:-$RUNNER_TEMP/release-notes.md}
+        mkdir -p "$(dirname "$out")"
+        # $GITHUB_ACTION_PATH is this action's directory inside the checkout of
+        # the repository it lives in, so the guard's own script is a relative
+        # path away and never a second copy.
+        guard="$GITHUB_ACTION_PATH/../../../.claude/skills/github-guard/githooks/pre-push.d/git-changelog.sh"
+        [ -x "$guard" ] || { echo "::error::changelog-notes: $guard is missing"; exit 1; }
+        # Run with the CALLER's repository as the working directory: the script
+        # reads that repo's CHANGELOG.md and that repo's origin (for the compare
+        # link), which is the whole point of the action.
+        ( cd "$REPO_PATH" && "$guard" notes "$TAG" ) > "$out"
+        # A section that exists but is empty would write a zero-byte body and
+        # publish a release saying nothing; the guard exits non-zero on a
+        # missing section, and this covers the remaining shape.
+        [ -s "$out" ] || { echo "::error::changelog-notes: no notes extracted for $TAG"; exit 1; }
+        echo "file=$out" >> "$GITHUB_OUTPUT"
+        echo "--- release notes for $TAG ---"
+        cat "$out"
