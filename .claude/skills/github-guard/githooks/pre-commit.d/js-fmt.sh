@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # guard: js-fmt
 # Auto-format staged JavaScript, TypeScript, CSS, HTML and JSON with the
-# project's own prettier and re-stage it. Skips silently when nothing of that
+# project's own prettier and re-stage it. Markdown is deliberately NOT in that
+# list: prettier rewraps prose and rebuilds tables, and a hook that quietly
+# reflows a document someone wrote by hand is a different proposition from one
+# that tidies code. Skips silently when nothing of that
 # kind is staged or prettier is not installed. NEVER blocks.
 #
 # The project's OWN prettier, from the nearest node_modules/.bin: prettier's
@@ -21,7 +24,7 @@ dir=$(cd "$(dirname "$0")/.." && pwd)   # the hooks dir
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 
 staged=$(git diff --cached --name-only --diff-filter=ACM \
-  -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' '*.cjs' '*.css' '*.scss' '*.html' '*.json' '*.md')
+  -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' '*.cjs' '*.css' '*.scss' '*.html' '*.json')
 [ -n "$staged" ] || exit 0
 unstaged=$(git diff --name-only --diff-filter=ACMD)
 

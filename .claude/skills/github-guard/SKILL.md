@@ -118,7 +118,9 @@ self-selecting at runtime — no per-project config.
   **blocks**: a lint finding says the code is wrong, not untidy, and ruff is too
   fast to be worth deferring to CI. Checking only staged files means someone
   else's pre-existing finding cannot block your commit.
-- **`js-fmt`** (pre-commit) — prettier on staged JS/TS/CSS/HTML/JSON/Markdown,
+- **`js-fmt`** (pre-commit) — prettier on staged JS/TS/CSS/HTML/JSON (not
+  Markdown: prettier rewraps prose and rebuilds tables, and quietly reflowing a
+  hand-written document is a different proposition from tidying code),
   re-staged; never blocks. Uses the **nearest** `node_modules/.bin/prettier`,
   walking up from each file, so a web project in a subdirectory is formatted by
   its own prettier with its own config; a global one formats to a different
