@@ -190,6 +190,297 @@ elif [ -f Cargo.lock ]; then
   fi
 fi
 
+# ── 5. the lock must record the sibling version the workflows PIN ───────────
+# The gap part 4 leaves. It skips whenever an external path dep is present,
+# deferring to CI's --locked — and that is the one case where the lock and the
+# workflow can disagree without anything local noticing.
+#
+# HOW IT HAPPENS, and it happens constantly in multi-repo work: bump a sibling
+# in its own checkout, then run ANY cargo command in a consumer — a build, a
+# test, this hook's own clippy — and cargo re-resolves the path dependency and
+# rewrites the consumer's lock to the sibling's new version. Commit that, and
+# CI clones the sibling at the tag written in the workflow, finds a lock naming
+# a version that tag does not have, and stops at:
+#
+#   error: cannot update the lock file … because --locked was passed
+#
+# Which is the pin doing its job, several minutes into a run, after a push.
+# This says the same thing before the commit exists.
+if [ -f Cargo.lock ] && [ -d .github/workflows ]; then
+  while IFS= read -r toml; do
+    [ -f "$toml" ] || continue
+    # `name = { path = "../sibling", … }` — the crate key and the directory it
+    # points at, which is the sibling repository's name.
+    while IFS='|' read -r crate sib; do
+      [ -n "$crate" ] && [ -n "$sib" ] || continue
+      lockver=$(awk -v p="$crate" '
+        $0 == "name = \"" p "\"" { getline; if ($1 == "version") { gsub(/[":]/, "", $3); print $3; exit } }
+      ' Cargo.lock)
+      [ -n "$lockver" ] || continue
+      # Every tag the workflows name on a line that also names this sibling,
+      # plus the same via a *_REF variable defined in the workflow or chores.yml.
+      pins=$(grep -rhoE "v[0-9]+\.[0-9]+\.[0-9]+" \
+               <(grep -rhE "$sib(\.git)?([^A-Za-z0-9._-]|\$)" .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null) \
+             2>/dev/null | sort -u)
+      # A *_REF indirection: resolve every REF variable too.
+      refs=$(grep -rhoE "^[[:space:]]*[A-Z0-9_]+_REF:[[:space:]]*v[0-9]+\.[0-9]+\.[0-9]+" \
+               .github/workflows/*.yml chores.yml 2>/dev/null | grep -oE "v[0-9]+\.[0-9]+\.[0-9]+" | sort -u)
+      # Nothing pinned for this sibling at all → not this check's business.
+      [ -n "$pins$refs" ] || continue
+
+      # EVERY PIN THAT CLONES THIS SIBLING INTO THE CONSUMER'S OWN
+      # SIBLING SLOT MUST MATCH, not merely one of them.
+      #
+      # This check used to be existential -- it passed as soon as any
+      # workflow named the lock's version. That let a repository hold two
+      # pins for the same sibling and be told it was fine: `ci.yml` at
+      # v0.2.10 satisfied the check while `release.yml` sat at v0.2.7,
+      # and since the release job only runs on a tag, the first sign was
+      # a failed publish. The guard was in place the whole time and could
+      # not have caught it, which is worse than not having it.
+      #
+      # `../<sibling>` IS THE DISCRIMINATOR, and it matters. A workflow
+      # may legitimately clone the same sibling somewhere else, at a
+      # different version, to satisfy a DIFFERENT crate's requirement --
+      # `rust-fs-ntfs` clones am-fs-core into RUNNER_TEMP at the version
+      # am-img-vhd wants, which has nothing to do with this crate's lock.
+      # Flagging that would be a false positive, and a guard that cries
+      # wolf gets bypassed.
+      #
+      # TWO SPELLINGS, and both have to be read. A `git clone --branch`
+      # puts the tag and the destination on one line, so a line filter
+      # sees it. `actions/checkout` spreads `repository:`, `ref:` and
+      # `path:` over separate lines, and a line filter sees none of
+      # them -- which is how a second repository in this constellation
+      # ran this check green with two pins it never examined.
+      # THREE SPELLINGS, and the third is the one that hid the bug this
+      # check was written for. A clone line may carry the tag as a
+      # literal, or as a variable -- `--branch "$FS_CORE_REF"` -- and
+      # reading only literals means the guard goes quiet exactly when a
+      # repository does the tidier thing.
+      #
+      # That is not a hypothetical ordering either. The fix for the
+      # original drift REPLACED release.yml's literal with the variable,
+      # so a check that reads literals only was blinded by the very
+      # commit that repaired the thing it was meant to catch. Verified:
+      # with `FS_CORE_REF: v0.2.7` in release.yml and the lock at
+      # 0.2.10, the literal-only version exits 0 and prints nothing.
+      bad=""
+      chores_file=""
+      [ -f chores.yml ] && chores_file=chores.yml
+      for wf in .github/workflows/*.yml .github/workflows/*.yaml; do
+        [ -f "$wf" ] || continue
+        wf_bad=$(awk -v sib="$sib" -v want="v$lockver" -v file="$wf" -v cf="${chores_file:-/dev/null}" '
+          # `chores.yml` first, then this file`s own env:, so a name
+          # defined in both resolves to the workflow`s value.
+          #
+          # WHY chores.yml IS READ HERE. A repository may assign the pin
+          # from a shell helper rather than a workflow variable --
+          # `core_ref="$(pin FS_CORE_REF)"`, with the value in
+          # chores.yml -- which is a BETTER design than a per-file env:
+          # block, because one declaration then feeds every clone. It is
+          # also the design this resolver could not see, so the tidiest
+          # repository in the group was the one going unchecked. That is
+          # the third spelling this check has had to learn, and each
+          # time the blind spot was a repository doing something more
+          # careful than the ones it already handled.
+          # FILENAME, NOT `FNR == NR`, AND THE DIFFERENCE WAS TOTAL SILENCE.
+          #
+          # This read `FNR == NR` to mean "first file, i.e. chores.yml". When a
+          # repository has no chores.yml the first argument is /dev/null, which
+          # contributes ZERO records — so for every line of the workflow NR and
+          # FNR are still equal, the whole file was consumed by this env-only
+          # pass, and the clone-matching rules below never ran at all. Measured
+          # 2026-09-11: the same fixture exits 1 with a one-line chores.yml
+          # present and exits 0 printing nothing without it.
+          #
+          # What survived was the EXISTENTIAL half above, which fails when no
+          # pin at all matches the lock — so the guard still caught the simple
+          # drift and looked healthy. What it could not catch was the case this
+          # exhaustive pass was added for: two pins for one sibling where the
+          # lock matches one of them, reported per file:line. Comparing
+          # FILENAME against the file actually passed works whether or not that
+          # file is /dev/null, and needs no gawk-only ARGIND.
+          FILENAME == cf {
+            if ($0 ~ /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*:[[:space:]]*v[0-9]+\.[0-9]+\.[0-9]+[[:space:]]*$/) {
+              key = $1; sub(/:$/, "", key); env[key] = $2
+            }
+            next
+          }
+          # This file`s own env: assignments, which win over chores.yml.
+          /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*:[[:space:]]*v[0-9]+\.[0-9]+\.[0-9]+[[:space:]]*$/ {
+            key = $1; sub(/:$/, "", key); val = $2; env[key] = val
+          }
+          # ONE HOP THROUGH A SHELL ASSIGNMENT:
+          #
+          #   core_ref="$(pin FS_CORE_REF)"
+          #
+          # The clone then reads `$core_ref`, whose value comes from
+          # `FS_CORE_REF` in chores.yml. Without this the guard can see
+          # that it cannot resolve the name but not what the name means,
+          # and reports a shrug where it could report an answer.
+          /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=.*\$\(pin[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\)/ {
+            lhs = $0
+            sub(/^[[:space:]]*/, "", lhs)
+            sub(/=.*$/, "", lhs)
+            rhs = $0
+            sub(/^.*\$\(pin[[:space:]]+/, "", rhs)
+            sub(/[[:space:]]*\).*$/, "", rhs)
+            if (rhs in env) { env[lhs] = env[rhs] }
+          }
+          # JOIN BACKSLASH CONTINUATIONS FIRST. A clone is routinely
+          # written across several physical lines:
+          #
+          #   git clone --quiet --depth 1 --branch "$core_ref" \\
+          #       https://…/rust-fs-core.git ../rust-fs-core
+          #
+          # so `--branch` and `../<sibling>` are never on the same line
+          # and a per-line match sees neither. That is the fourth
+          # spelling this check has had to learn, and it was silent
+          # rather than wrong -- the pattern matched nothing, so the
+          # guard reported nothing.
+          {
+            if (buf == "") { bufline = FNR }
+            line = $0
+            if (line ~ /\\[[:space:]]*$/) {
+              sub(/\\[[:space:]]*$/, "", line)
+              buf = buf line " "
+              next
+            }
+            buf = buf line
+            logical = buf
+            buf = ""
+          }
+          # A clone whose destination is the consumer`s own sibling slot.
+          logical ~ ("\\.\\./" sib "([^A-Za-z0-9._-]|$)") && logical ~ /--branch/ {
+            ref = ""
+            n = split(logical, tok, /[[:space:]]+/)
+            for (i = 1; i <= n; i++) {
+              if (tok[i] == "--branch" || tok[i] == "-b") { ref = tok[i + 1]; break }
+            }
+            gsub(/["\047]/, "", ref)
+            if (ref ~ /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/) {
+              name = ref
+              gsub(/[$\{\}]/, "", name)
+              resolved = (name in env) ? env[name] : ""
+              # AN UNRESOLVABLE NAME IS REPORTED, not skipped. The
+              # previous version dropped it silently, which meant the
+              # guard`s quietest output -- nothing at all -- covered
+              # both "this pin is correct" and "this pin was never
+              # read". Those are not the same answer and must not look
+              # the same. Naming it is noisy in the rare case the
+              # variable comes from somewhere this script cannot see;
+              # that is the right way round, because the failure of a
+              # silent skip is invisible and the failure of a false
+              # alarm is a person reading one line.
+              if (resolved == "") {
+                printf "%s:%d: --branch %s (cannot resolve; not checked)\n", file, bufline, ref
+                next
+              }
+              if (resolved != want) {
+                printf "%s:%d: --branch %s = %s\n", file, bufline, ref, resolved
+              }
+              next
+            }
+            if (ref ~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ && ref != want) {
+              printf "%s:%d: --branch %s\n", file, bufline, ref
+            }
+          }
+        ' "${chores_file:-/dev/null}" "$wf")
+        [ -n "$wf_bad" ] && bad="${bad:+$bad
+}$wf_bad"
+      done
+
+      # The `actions/checkout` form. A `repository:` naming the sibling,
+      # then within the next few lines a `ref:` giving the tag and a
+      # `path:` giving where it lands. `path` is the discriminator here,
+      # exactly as `../<sib>` is above: a checkout of the same sibling
+      # somewhere else, to satisfy some other crate, is not this lock's
+      # business.
+      for wf in .github/workflows/*.yml .github/workflows/*.yaml; do
+        [ -f "$wf" ] || continue
+        checkout_bad=$(awk -v sib="$sib" -v want="v$lockver" -v file="$wf" '
+          # THIS BLOCK NEEDS ITS OWN env: MAP. It resolves
+          # `${{ env.NAME }}` below, and without collecting the
+          # assignments first every such pin reads as unresolvable --
+          # which is how the first version of this reported "cannot
+          # resolve" for a workflow whose variable was declared eight
+          # lines above the clone that used it.
+          FNR == NR {
+            if ($0 ~ /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*:[[:space:]]*v[0-9]+\.[0-9]+\.[0-9]+[[:space:]]*$/) {
+              k = $1; sub(/:$/, "", k); env[k] = $2
+            }
+            next
+          }
+          /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*:[[:space:]]*v[0-9]+\.[0-9]+\.[0-9]+[[:space:]]*$/ {
+            k = $1; sub(/:$/, "", k); env[k] = $2
+          }
+          $0 ~ ("repository:[[:space:]]*.*/" sib "[[:space:]]*$") { inblk = 1; ln = FNR; ref = ""; pth = ""; unresolved = 0; next }
+          inblk {
+            # A literal tag, or `${{ env.NAME }}` resolved against the
+            # env: map. WITHOUT THE SECOND FORM, converting a repository
+            # to a single shared variable -- the tidier arrangement, and
+            # the one worth encouraging -- would make its pins invisible
+            # here. That has already happened twice in this
+            # constellation: once for a workflow `env:` variable and
+            # once for a `chores.yml` value read through a shell helper.
+            # A guard that goes quiet when a repository improves is
+            # worse than one that never looked.
+            if ($0 ~ /ref:[[:space:]]*v[0-9]+\.[0-9]+\.[0-9]+/) { ref = $NF }
+            else if ($0 ~ /ref:[[:space:]]*\$\{\{[[:space:]]*env\./) {
+              nm = $0
+              sub(/^.*env\./, "", nm)
+              sub(/[^A-Za-z0-9_].*$/, "", nm)
+              if (nm in env) { ref = env[nm] }
+              else { ref = "$" nm; unresolved = 1 }
+            }
+            if ($0 ~ /path:[[:space:]]*/) { pth = $NF }
+            if (FNR - ln > 4 || ($0 ~ /^[[:space:]]*-/ && FNR > ln)) {
+              if (ref != "" && (pth == sib || pth == ".." "/" sib)) {
+                if (unresolved) {
+                  printf "%s:%d: ref: %s (cannot resolve; not checked)\n", file, ln, ref
+                } else if (ref != want) {
+                  printf "%s:%d: ref: %s\n", file, ln, ref
+                }
+              }
+              unresolved = 0
+              inblk = 0
+            }
+          }
+          END {
+            if (inblk && ref != "" && ref != want && (pth == sib || pth == ".." "/" sib)) {
+              printf "%s:%d: ref: %s\n", file, ln, ref
+            }
+          }
+        ' "$wf" "$wf")
+        [ -n "$checkout_bad" ] && bad="${bad:+$bad
+}$checkout_bad"
+      done
+      if [ -z "$bad" ]; then
+        # Every literal that clones into the sibling slot agrees. The
+        # remaining way to be pinned is through a *_REF variable.
+        if [ -n "$(printf '%s\n' "$pins" | grep -E "^v${lockver}$")" ] \
+           || [ -n "$(printf '%s\n' "$refs" | grep -E "^v${lockver}$")" ]; then
+          continue
+        fi
+      fi
+      echo "[deps] Cargo.lock records $crate = $lockver, and a workflow pins a different version." >&2
+      if [ -n "$bad" ]; then
+        echo "       These lines clone ../$sib at a version the lock does not name:" >&2
+        printf '         %s\n' "$bad" >&2
+      else
+        echo "       The workflows pin: $(printf '%s\n' $pins $refs | sort -u | tr '\n' ' ')" >&2
+      fi
+      echo "       CI clones the sibling at its pinned tag and then refuses the lock:" >&2
+      echo "         error: cannot update the lock file … because --locked was passed" >&2
+      echo "       Fix EITHER side: move the pin to v$lockver, or restore the lock" >&2
+      echo "       (git checkout HEAD -- Cargo.lock) if the bump was accidental." >&2
+      fail=1
+    done < <(grep -vE '^[[:space:]]*#' "$toml" 2>/dev/null \
+              | sed -nE 's@^[[:space:]]*([A-Za-z0-9_-]+)[[:space:]]*=[[:space:]]*\{[^}]*path[[:space:]]*=[[:space:]]*"\.\.?/([A-Za-z0-9._-]+)".*@\1|\2@p')
+  done < <(git ls-files '*Cargo.toml' 'Cargo.toml')
+fi
+
 if [ "$fail" != 0 ]; then
   echo "github-guard: rust-deps-pinned blocked the commit — pin your dependencies (above)." >&2
   echo "             Bypass once (NOT recommended): git commit --no-verify" >&2
