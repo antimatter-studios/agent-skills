@@ -141,24 +141,37 @@ for target in "${repos[@]}"; do
 
   # Executables under a tracked .githooks/ are guards this layout no longer runs.
   # required-checks is data, is 644, and correctly does not appear here.
+  stranded=0
   if [ -d "$target/.githooks" ]; then
     orphans=$( (cd "$target/.githooks" && find . -type f -perm -u+x | sed 's#^\./##' | sort) )
     while IFS= read -r o; do
       [ -n "$o" ] || continue
-      [ -f "$src/$o" ] || notes+=(".githooks/$o no longer runs")
+      [ -f "$src/$o" ] && continue
+      stranded=$((stranded + 1))
+      notes+=(".githooks/$o no longer runs")
     done <<<"$orphans"
   fi
 
+  # One word per repo, and the two conditions that are NOT file drift get their
+  # own words rather than sharing one: an override means the installed files are
+  # right and none of them run, while stranded in-tree guards mean the installed
+  # files are right and something ELSE used to run beside them. Reported as one
+  # state they read as the same problem, and the sweep that cleans the tree gets
+  # pointed at repos whose git config is the actual fault.
   state=current
+  [ "$stranded" -gt 0 ] && state=stranded
   [ $((older + missing + unarmed)) -gt 0 ] && state=behind
   [ "$local_edits" -gt 0 ] && state=customised
-  [ ${#notes[@]} -gt 0 ] && [ "$state" = current ] && state=inert
+  # An override outranks every count: with it set, nothing under .git/hooks runs
+  # at all, so what those files say is beside the point until it is cleared.
+  [ -n "$hp" ] && state=inert
 
   summary=""
   [ "$older" -gt 0 ] && summary+="$older older "
   [ "$local_edits" -gt 0 ] && summary+="$local_edits local "
   [ "$missing" -gt 0 ] && summary+="$missing missing "
   [ "$unarmed" -gt 0 ] && summary+="$unarmed not-executable "
+  [ "$stranded" -gt 0 ] && summary+="$stranded stranded in .githooks/ "
   printf '%-52s %-11s %s\n' "$target" "$state" "${summary% }"
   for n in ${notes[@]+"${notes[@]}"}; do printf '%-52s   %s\n' "" "$n"; done
   if [ "$verbose" = 1 ]; then
