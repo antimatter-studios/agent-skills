@@ -75,6 +75,49 @@ gg_has_changelog() {
   return 1
 }
 
+# --- Declarations a repo makes to the guards ---------------------------------
+
+# Echo the path prefixes a repo declared for <key>, one per line, or nothing.
+#
+#   gg_declared_paths private-path private-paths
+#                     ^ git config github-guard.<key> (repeatable)
+#                                   ^ .githooks/<file>, one path per line
+#
+# Two sources because they answer different needs. Per-clone git config cannot
+# be rewritten by a branch, which is the arrangement the whole hooks layout
+# exists to get (see install.sh). An in-tree file TRAVELS with the repo, which
+# is what a "do not publish this directory" rule actually wants — a fresh clone
+# must inherit it or the wall is only as good as whoever remembered to set it
+# up. So config wins where both are present, and the in-tree file is read as
+# data only: it names paths, it is never executed, and a branch that edits it
+# can only weaken a guard that protects its own author from an accident.
+#
+# Both empty means the guard has nothing to act on and no-ops — a guard that
+# guesses which directories are private would block the wrong commits.
+gg_declared_paths() {
+  local key="$1" file="$2" root out
+  out=$(git config --get-all "github-guard.$key" 2>/dev/null) || out=
+  if [ -n "$out" ]; then printf '%s\n' "$out"; return 0; fi
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  [ -f "$root/.githooks/$file" ] || return 0
+  sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' "$root/.githooks/$file" \
+    | grep -v '^$' || true
+}
+
+# The notice every format-then-restage guard owes a partially-staged file.
+#
+# Formatting rewrites a file's FULL on-disk content, so `git add`-ing it after
+# formatting would also stage the unstaged edits sitting in it — sweeping
+# work-in-progress into a commit nobody asked to include it in. The file is
+# left alone instead, which means its staged snapshot commits unformatted, and
+# that trade is worth saying out loud rather than doing silently.
+gg_partial_notice() {
+  local guard="$1" file="$2" hint="$3"
+  echo "github-guard: $guard left '$file' unformatted in this commit — it has unstaged" >&2
+  echo "             changes, and re-staging after format would mix them in. Stage it" >&2
+  echo "             fully (git add '$file'), or $hint yourself." >&2
+}
+
 # --- Rust helpers (shared by the rust-* guards) ------------------------------
 
 # True if the repo root holds a Cargo.toml (i.e. it's a Cargo project).

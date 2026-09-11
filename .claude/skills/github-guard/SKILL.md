@@ -96,6 +96,51 @@ self-selecting at runtime — no per-project config.
   isn't available (fresh clone / empty offline cache) — CI's `--locked` is the
   final backstop.
 
+- **`go-fmt`** (pre-commit) — formats the staged Go with **gofumpt** when it is
+  installed and gofmt otherwise, and re-stages it; never blocks. gofumpt is the
+  strict superset a project's `.golangci.yml` may demand, and formatting to the
+  weaker standard only to be failed by the linter is the outcome worth avoiding.
+- **`go-vet`** (pre-commit) — `go vet ./...`, blocks on a finding. Go modules
+  only, and only when the commit touches Go. Fails **open** when the module
+  cannot build for a reason that is not the code — an embed directive whose
+  target has not been built yet, keyed on go's own *"pattern …: no matching
+  files found"* — because a fresh clone that can commit nothing is worse than a
+  missed vet.
+- **`go-test`** (pre-push, **ships disarmed**) — `go test ./...`, blocks the
+  push on failure. Not executable in the payload: running a whole suite is a
+  per-project decision. `chmod +x .git/hooks/pre-push.d/go-test.sh` arms it, and
+  re-running the installer leaves that mode alone.
+- **`python-fmt`** (pre-commit) — `ruff format` on the staged Python, re-staged;
+  never blocks. Prefers the project's `.venv/bin/ruff`, whose version is the one
+  the project pinned — a different ruff on `PATH` reformats the same file the
+  other way on alternate commits.
+- **`python-lint`** (pre-commit) — `ruff check` on the staged Python only, and
+  **blocks**: a lint finding says the code is wrong, not untidy, and ruff is too
+  fast to be worth deferring to CI. Checking only staged files means someone
+  else's pre-existing finding cannot block your commit.
+- **`js-fmt`** (pre-commit) — prettier on staged JS/TS/CSS/HTML/JSON (not
+  Markdown: prettier rewraps prose and rebuilds tables, and quietly reflowing a
+  hand-written document is a different proposition from tidying code),
+  re-staged; never blocks. Uses the **nearest** `node_modules/.bin/prettier`,
+  walking up from each file, so a web project in a subdirectory is formatted by
+  its own prettier with its own config; a global one formats to a different
+  major's defaults than the project's CI checks.
+- **`git-block-private-paths`** (pre-commit) — refuses to commit anything under
+  a path the repo declared private (see below). `.gitignore` covers the accident
+  until someone runs `git add -f`; this is the wall for material that must not
+  reach the published repo. No declaration, no opinion.
+- **`generated-normalise`** (pre-commit) — strips trailing whitespace from
+  staged files under a declared *generated* path and re-stages them; never
+  blocks. Sorts before `git-no-trailing-whitespace` deliberately: generators
+  emit trailing spaces in doc comments, and without this every regeneration
+  needs `--no-verify`, which disables every other guard too.
+
+Every formatting guard re-stages **only fully-staged files**. Formatting
+rewrites a file's whole on-disk content, so `git add`-ing it afterwards would
+also stage the unstaged edits sitting in it — silently sweeping
+work-in-progress into a commit. A partially-staged file is left alone, with a
+notice, and its staged snapshot commits unformatted.
+
 The rust guards run cargo via the **rustup shim** (`~/.cargo/bin/cargo`), so a
 repo's `rust-toolchain.toml` pin is honored and local fmt/clippy/metadata match
 CI — a bare `cargo` may be Homebrew's, which ignores the pin.
@@ -172,6 +217,30 @@ path-filtered without ever stranding a merge.
 `install.sh` never writes into the working tree, so this file is untouched by an
 install or an upgrade.
 
+## Declaring private and generated paths
+
+Two guards act only on paths the repo names, because which directories hold
+unpublishable material or machine output is not something a guard can guess:
+
+```sh
+git config --add github-guard.private-path   tmp        # git-block-private-paths
+git config --add github-guard.generated-path frontend/bindings   # generated-normalise
+```
+
+…or, in the tree, `.githooks/private-paths` and `.githooks/generated-paths` —
+one path per line, `#` for comments. Config wins where both exist.
+
+Both sources are offered because they answer different needs. Per-clone git
+config cannot be rewritten by a branch, which is the property the whole hooks
+layout exists to get. An in-tree list **travels**, which is what a "do not
+publish this directory" rule actually wants: a fresh clone must inherit it, or
+the wall is only as strong as whoever remembered to configure it. The in-tree
+file is read as **data** — it names paths, is never executed, and a branch that
+edits it can only weaken a guard protecting its own author from an accident.
+
+A path matches on whole components: `tmp` blocks `tmp/` and a file named `tmp`,
+and does not block `tmpl/`.
+
 ## Tests
 
 - `tests/protect-main-required-checks.sh [githooks-dir]` — the required-check
@@ -195,13 +264,20 @@ install or an upgrade.
   That is not hypothetical: selecting the chores file with `FNR == NR` made the
   per-file pass inert in every repo that has no chores file, and the guard still
   looked healthy because the existential check kept firing.
+- `tests/language-guards.sh [githooks-dir]` — the per-language guards, with the
+  toolchains **stubbed**: what is under test is which files each guard touches,
+  what it stages and when it blocks, not gofmt's or ruff's behaviour. Every
+  formatting case asserts the **staged blob**, never the working tree, because
+  the failure that matters is a formatted file being re-staged along with the
+  unstaged edits in it — remove that check and the suite shows `WORK IN
+  PROGRESS` inside the commit.
 - `tests/status-sh.sh [skill-dir]` — the four answers `status.sh` has to keep
   apart (current, older, local, missing), plus the exec bit, `core.hooksPath`,
   and the stranded-in-tree-guard note. Every case denies the neighbouring
   classification as well as asserting its own, since reporting local work as
   merely *older* is what makes a sweep delete it.
 
-All four take an optional path, so pointing them at another copy (a worktree of
+All five take an optional path, so pointing them at another copy (a worktree of
 an older commit, or a deployed `.git/hooks`) shows a regression fail rather than
 asserting it.
 
