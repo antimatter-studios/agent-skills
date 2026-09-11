@@ -77,17 +77,22 @@ clear_hooks_path() {
 # not a hook — and is read from the server, not the tree — so it is 644 and never
 # trips this.
 warn_orphaned_tree_guards() {
-  local target="$1" rel found=0
-  [ -d "$target/.githooks" ] || return 0
-  while IFS= read -r rel; do
-    rel=${rel#./}
-    [ -f "$src/$rel" ] && continue     # ours; now installed under .git/hooks
-    if [ "$found" = 0 ]; then
-      found=1
-      printf '  NOTE %s: repo-local guards under .githooks/ no longer run:\n' "$target" >&2
-    fi
-    printf '       .githooks/%s\n' "$rel" >&2
-  done < <(cd "$target/.githooks" && find . -type f -perm -u+x | sort)
+  local target="$1" dir rel found=0
+  # Both in-tree directories: the superseded .githooks/, and .github-guard/,
+  # which holds DECLARATIONS and executes nothing — an executable dropped in
+  # either one silently never runs, which is the failure worth naming.
+  for dir in .githooks .github-guard; do
+    [ -d "$target/$dir" ] || continue
+    while IFS= read -r rel; do
+      rel=${rel#./}
+      [ -f "$src/$rel" ] && continue   # ours; now installed under .git/hooks
+      if [ "$found" = 0 ]; then
+        found=1
+        printf '  NOTE %s: repo-local guards in the working tree no longer run:\n' "$target" >&2
+      fi
+      printf '       %s/%s\n' "$dir" "$rel" >&2
+    done < <(cd "$target/$dir" && find . -type f -perm -u+x | sort)
+  done
   if [ "$found" = 1 ]; then
     printf '       Move each into .git/hooks/<hook>.d/ to keep it, or delete it.\n' >&2
   fi

@@ -56,11 +56,15 @@ case "$url" in
       *'"success"'*)          printf '%s' "${GH_PASSED:-}" ;;
       *)                      printf '%s' "${GH_HEAD:-}" ;;
     esac ;;
-  */contents/.githooks/required-checks*)
+  */contents/.github-guard/required-checks*)
     # The declaration is read from the repo's default branch on the SERVER, not
     # the working tree, so the stub is where it lives. Unset = no such file.
     [ -n "${GH_DECLARATION:-}" ] || exit 1
     printf '%s\n' "$GH_DECLARATION" ;;
+  */contents/.githooks/required-checks*)
+    # The superseded location, still read when the new one is absent.
+    [ -n "${GH_DECLARATION_OLD:-}" ] || exit 1
+    printf '%s\n' "$GH_DECLARATION_OLD" ;;
   */branches/*/protection)
     [ "${GH_PROTECTED:-1}" = 1 ] || exit 1
     printf '%s\n%s\n%s\n%s\n' "${GH_REVIEWS:-true}" "${GH_ADMINS:-true}" \
@@ -87,6 +91,8 @@ run_case() {
   mkdir -p "$dir/.githooks"
   cp -R "$src/." "$dir/.githooks/"
   if [ "$declared" = ABSENT ]; then unset GH_DECLARATION; else export GH_DECLARATION="$declared"; fi
+  # Set explicitly per case; never inherited from the previous one.
+  if [ -n "${OLD_DECLARATION:-}" ]; then export GH_DECLARATION_OLD="$OLD_DECLARATION"; else unset GH_DECLARATION_OLD; fi
   [ -z "$worktree" ] || printf '%s\n' "$worktree" > "$dir/.githooks/required-checks"
   export GH_CAPTURE="$dir/put.json"
   ( cd "$dir" && bash .githooks/pre-commit.d/github-protect-main.sh ) >"$dir/out" 2>"$dir/err"
@@ -203,6 +209,24 @@ expect_stderr 'not required yet'
 export GH_PASSED=$'CI\nFormulae\n'
 export GH_CURRENT='[{"context":"CI"}]'
 run_case 'a working-tree declaration cannot unprotect the branch' 'CI' 'none'
+expect_checks '["CI"]'
+
+# 11. The declaration outlived the directory it was named for. Hooks live in
+#     .git/hooks, so .githooks/ holds no hooks and the file belongs in
+#     .github-guard/ — but a repo that has not moved it yet must keep its gate,
+#     and be told, rather than silently falling back to discovery.
+export GH_PASSED=$'CI\n'
+export GH_CURRENT='[]'
+OLD_DECLARATION='CI' run_case 'a declaration still in .githooks/ is honoured' ABSENT
+expect_checks '["CI"]'
+expect_stderr 'move it to .github-guard/required-checks'
+
+# ...and the new location wins when both exist, which is what makes a move
+# safe: the old file can be deleted in a second commit, or left, and the answer
+# does not change in between.
+export GH_PASSED=$'CI\nFormulae\n'
+export GH_CURRENT='[]'
+OLD_DECLARATION='Formulae' run_case 'the new location wins over the old' 'CI'
 expect_checks '["CI"]'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

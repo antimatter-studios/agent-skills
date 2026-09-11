@@ -111,7 +111,8 @@ fi
 # Sanitize to digits so only a number can reach the JSON payload below.
 case "$review_count" in '' | *[!0-9]*) review_count=0 ;; esac
 
-# An OPTIONAL committed declaration OVERRIDES discovery: `.githooks/required-checks`,
+# An OPTIONAL committed declaration OVERRIDES discovery: `.github-guard/required-checks`
+# (or the older `.githooks/required-checks`),
 # one check-run name per line (`#` comments and blank lines ignored; the single
 # word `none` means require no checks at all).
 #
@@ -136,13 +137,23 @@ if command -v jq >/dev/null 2>&1; then
   # `none` strips them all) — so read it from the TRUSTED default branch on the
   # SERVER, never the working tree. This hook is pre-commit and runs against
   # whatever is checked out; an untrusted branch (e.g. a contributor PR reviewed
-  # locally) carrying a `.githooks/required-checks` that says `none` must NOT be
+  # locally) carrying a declaration that says `none` must NOT be
   # able to clear protection just because the owner commits while it is checked
   # out. Reading the committed `$branch` copy means a policy change only takes
   # effect once it is merged to the default branch. Absent/unreadable (404, no
   # network, no jq) → '[]', i.e. fall through to discovery — never unprotect.
-  decl_raw=$(gh api "repos/$slug/contents/.githooks/required-checks?ref=$branch" \
+  # .github-guard/ first, .githooks/ still honoured: the declaration outlived
+  # the directory it was named for, and both are read from the SERVER, so a
+  # repo moves the file in its own time with no window where neither is read.
+  decl_path=.github-guard/required-checks
+  decl_raw=$(gh api "repos/$slug/contents/$decl_path?ref=$branch" \
     -H "Accept: application/vnd.github.raw" 2>/dev/null) || decl_raw=""
+  if [ -z "$decl_raw" ]; then
+    decl_path=.githooks/required-checks
+    decl_raw=$(gh api "repos/$slug/contents/$decl_path?ref=$branch" \
+      -H "Accept: application/vnd.github.raw" 2>/dev/null) || decl_raw=""
+    [ -n "$decl_raw" ] && echo "github-guard: $branch declares its gate in .githooks/required-checks — move it to .github-guard/required-checks (nothing in .githooks/ runs any more)" >&2
+  fi
   if [ -n "$decl_raw" ]; then
     declared=$(printf '%s\n' "$decl_raw" \
       | sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' \
@@ -152,7 +163,7 @@ if command -v jq >/dev/null 2>&1; then
       # Comments-only or empty: NOT read as "require nothing" — a file someone
       # blanked mid-edit must not silently unprotect the branch. Fall through to
       # discovery; `none` is the explicit way to ask for an empty set.
-      echo "github-guard: .githooks/required-checks on $branch lists no checks — ignoring it (write 'none' to require none)" >&2
+      echo "github-guard: $decl_path on $branch lists no checks — ignoring it (write 'none' to require none)" >&2
     fi
   fi
 fi
@@ -204,7 +215,7 @@ elif [ "$declared" != '[]' ]; then
 # is discovered but NOT promoted to required, so it can't block merges. Empty
 # discovery → keep current untouched. (jq required for the union; without it we
 # already fell through with desired='[]' and keep current.) Reached only when the
-# repo has NOT declared its gate in .githooks/required-checks above.
+# repo has NOT declared its gate above.
 elif [ -n "$desired" ] && [ "$desired" != "[]" ]; then
   # $desired is only ever non-'[]' when the jq-guarded discovery above populated
   # it, so jq is guaranteed here — union existing (`current`, always kept) with

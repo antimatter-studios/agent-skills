@@ -95,12 +95,23 @@ gg_has_changelog() {
 # Both empty means the guard has nothing to act on and no-ops — a guard that
 # guesses which directories are private would block the wrong commits.
 gg_declared_paths() {
-  local key="$1" file="$2" root out
+  local key="$1" file="$2" root out path
   out=$(git config --get-all "github-guard.$key" 2>/dev/null) || out=
   if [ -n "$out" ]; then printf '%s\n' "$out"; return 0; fi
   root=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
-  [ -f "$root/.githooks/$file" ] || return 0
-  sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' "$root/.githooks/$file" \
+  # .github-guard/ is where a declaration belongs: the hooks themselves live in
+  # .git/hooks, so a directory called .githooks/ holding no hooks invites
+  # someone to drop an executable in and expect it to run, which it never will.
+  # The old path still works, with a warning, so no repo has a flag day.
+  if [ -f "$root/.github-guard/$file" ]; then
+    path="$root/.github-guard/$file"
+  elif [ -f "$root/.githooks/$file" ]; then
+    path="$root/.githooks/$file"
+    echo "github-guard: read .githooks/$file — move it to .github-guard/$file (the hooks are in .git/hooks; nothing in .githooks/ runs)" >&2
+  else
+    return 0
+  fi
+  sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' "$path" \
     | grep -v '^$' || true
 }
 

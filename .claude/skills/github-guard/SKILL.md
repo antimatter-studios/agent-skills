@@ -24,9 +24,21 @@ each guard is a single-purpose script you drop in or delete.
   lib/common.sh  lib/run-guards.sh
   …documented stubs for every other safe client-side hook (no-op until you add guards)
 
-.githooks/                   # the only github-guard file still IN the repo
-  required-checks            # optional: the status checks main must require
+.github-guard/               # the only github-guard files still IN the repo —
+  required-checks            #   DECLARATIONS, read as data, never executed
+  private-paths              # optional: paths that must not be committed
+  generated-paths            # optional: machine output, normalised not blocked
 ```
+
+Those three are facts about the **repository**, which is why they are tracked
+rather than per-clone config: `required-checks` decides what branch protection
+requires for everyone (and is read from the server, never the working tree);
+`private-paths` has to travel, or a fresh clone has no wall at all; and which
+directories hold generated output is the same for whoever commits. The
+directory is deliberately NOT called `.githooks/` — nothing in the working tree
+runs, and a name saying "hooks" invites an executable that will be ignored in
+silence. The old `.githooks/<file>` is still read, with a notice naming the
+move.
 
 **Where the hooks live, and why it matters.** Git resolves a hook path when it
 runs the hook — for a checkout, *after* the working tree has been rewritten. An
@@ -145,7 +157,7 @@ The rust guards run cargo via the **rustup shim** (`~/.cargo/bin/cargo`), so a
 repo's `rust-toolchain.toml` pin is honored and local fmt/clippy/metadata match
 CI — a bare `cargo` may be Homebrew's, which ignores the pin.
 
-## Declaring the required status checks (`.githooks/required-checks`)
+## Declaring the required status checks (`.github-guard/required-checks`)
 
 `github-protect-main` requires status checks **by check-run name**, discovered
 from recent `pull_request` runs. Discovery is additive and self-healing, but it
@@ -168,7 +180,7 @@ So a repo can just say what its gate is — an optional, committed file, one
 check-run name per line:
 
 ```
-# .githooks/required-checks — what must pass before main takes a merge
+# .github-guard/required-checks — what must pass before main takes a merge
 CI
 ```
 
@@ -259,7 +271,7 @@ git config --add github-guard.private-path   tmp        # git-block-private-path
 git config --add github-guard.generated-path frontend/bindings   # generated-normalise
 ```
 
-…or, in the tree, `.githooks/private-paths` and `.githooks/generated-paths` —
+…or, in the tree, `.github-guard/private-paths` and `.github-guard/generated-paths` —
 one path per line, `#` for comments. Config wins where both exist.
 
 Both sources are offered because they answer different needs. Per-clone git
@@ -340,7 +352,8 @@ which owns the `installed_into` registry (see *Upgrading every guarded project*)
    it — its behavior should move into a `pre-commit.d/` guard (fmt/clippy and
    reproducible-release dep-pinning are already covered by the `rust-*` guards).
    The installer also NAMES any executable the repo still keeps in a tracked
-   `.githooks/`: those used to run and no longer do. It refuses to import them
+   `.githooks/` or `.github-guard/`: the first used to run and no longer does,
+   and the second is a declaration directory that executes nothing. It refuses to import them
    for you — copying executables out of the working tree is the hole this layout
    closes — so move each into `.git/hooks/<hook>.d/`, or delete it.
 3. **Run the installer:**
@@ -393,7 +406,7 @@ Per repo it prints one of:
 | `behind` | a file matches an **earlier release** (named by commit), or is missing, or is not executable | re-run `install.sh` |
 | `customised` | a file matches **no release** — written in place, never upstreamed | read it, upstream what is worth keeping, *then* re-install |
 | `in-tree` | the repo still **tracks** a copy of the guards under `.githooks/`, the arrangement this layout replaced | commit their deletion |
-| `stranded` | the installed files are right, but a tracked `.githooks/` still holds executables this layout no longer runs | move each into `.git/hooks/<hook>.d/` or delete it |
+| `stranded` | the installed files are right, but `.githooks/` or `.github-guard/` still holds executables that nothing runs | move each into `.git/hooks/<hook>.d/` or delete it |
 | `inert` | `core.hooksPath` overrides `.git/hooks`, so nothing in it runs | clear the setting |
 
 A tracked in-tree copy does not run — the installer clears `core.hooksPath` —
