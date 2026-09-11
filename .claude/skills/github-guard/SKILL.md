@@ -187,12 +187,26 @@ install or an upgrade.
   first proves the same attack DOES fire through `core.hooksPath`, so an absent
   marker means the hook was ignored rather than never run.
 
-Both take an optional path, so pointing them at another copy of the skill (a
-worktree of an older commit) shows a regression fail rather than asserting it.
+- `tests/rust-deps-pinned-sibling-lock.sh [githooks-dir]` — the sibling-clone
+  half of `rust-deps-pinned.sh`, in both shapes of repository: with a chores file
+  and without one. Each case asserts the per-file diagnostic by its own wording,
+  because the section has an older existential check in front of it that fails
+  for a different reason and would otherwise satisfy an exit-status assertion.
+  That is not hypothetical: selecting the chores file with `FNR == NR` made the
+  per-file pass inert in every repo that has no chores file, and the guard still
+  looked healthy because the existential check kept firing.
+- `tests/status-sh.sh [skill-dir]` — the four answers `status.sh` has to keep
+  apart (current, older, local, missing), plus the exec bit, `core.hooksPath`,
+  and the stranded-in-tree-guard note. Every case denies the neighbouring
+  classification as well as asserting its own, since reporting local work as
+  merely *older* is what makes a sweep delete it.
+
+All four take an optional path, so pointing them at another copy (a worktree of
+an older commit, or a deployed `.git/hooks`) shows a regression fail rather than
+asserting it.
 
 ```sh
-bash .claude/skills/github-guard/tests/install-sh.sh
-bash .claude/skills/github-guard/tests/protect-main-required-checks.sh
+for t in .claude/skills/github-guard/tests/*.sh; do bash "$t"; done
 ```
 
 ## How to install into a target repo
@@ -244,6 +258,37 @@ which owns the `installed_into` registry (see *Upgrading every guarded project*)
      cost of hooks a branch cannot rewrite, and it is per-clone, not per-branch.
    - The `github-*` guards need `gh` authed with admin and only act on accounts
      the user owns; otherwise they skip silently.
+
+## Which clones are current (`status.sh`)
+
+The guards live outside the working tree, so `git status` says nothing about
+them: each clone holds its own copy and a copy that drifted is invisible until
+someone compares. `status.sh` is that comparison.
+
+```sh
+bash ~/.claude/skills/github-guard/status.sh              # this repo
+bash ~/.claude/skills/github-guard/status.sh -v <repo>…    # and name the files
+```
+
+Per repo it prints one of:
+
+| state | meaning | what to do |
+| --- | --- | --- |
+| `current` | every payload file matches, byte for byte | nothing |
+| `behind` | a file matches an **earlier release** (named by commit), or is missing, or is not executable | re-run `install.sh` |
+| `customised` | a file matches **no release** — written in place, never upstreamed | read it, upstream what is worth keeping, *then* re-install |
+| `inert` | files match but `core.hooksPath` overrides them | clear the setting |
+
+The `behind` / `customised` split is the reason this exists. An older file is
+one to overwrite; a file nobody upstreamed is work, and a sweep that overwrites
+it destroys it — which is how `rust-deps-pinned.sh`'s sibling-clone section sat
+in one clone and nowhere else for weeks. Exit status is 0 only when every named
+repo is `current`, so the script doubles as the gate for a sweep.
+
+Dating a file needs the payload's git history. An installed skill under
+`~/.claude/skills/` has none of its own, so pass `--source <agent-skills
+checkout>`; without it, files are still compared, everything differing is
+reported as `local`, and the script says so on stderr rather than guessing.
 
 ## Upgrading every guarded project
 
