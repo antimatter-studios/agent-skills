@@ -72,3 +72,52 @@ jobs:
             bash "$t"
           done
           [ "$found" = 1 ] || { echo "no test suites found" >&2; exit 1; }
+
+      # The action's WIRING — $GITHUB_ACTION_PATH, its inputs, its output, and
+      # the failure it must not swallow — can only be tested by a runner
+      # actually using it. Steps in this job rather than a job of its own, so
+      # the required check stays one name (see above).
+      - name: Fixture repo for the changelog-notes action
+        run: |
+          set -euo pipefail
+          fix="$RUNNER_TEMP/notes-fixture"
+          mkdir -p "$fix"
+          cd "$fix"
+          git init -q .
+          git remote add origin git@github.com:an-org/a-repo.git
+          printf '# Changelog\n\n## v1.2.0\n\nThe newest thing.\n\n## v1.1.0\n\nThe older thing.\n' > CHANGELOG.md
+
+      - name: changelog-notes action
+        id: notes
+        uses: ./.github/actions/changelog-notes
+        with:
+          tag: v1.2.0
+          path: ${{ runner.temp }}/notes-fixture
+
+      - name: The notes are the changelog section
+        run: |
+          set -euo pipefail
+          f='${{ steps.notes.outputs.file }}'
+          [ -s "$f" ] || { echo "the action reported no file"; exit 1; }
+          grep -q 'The newest thing\.' "$f"
+          grep -q 'compare/v1.1.0\.\.\.v1.2.0' "$f"
+          # `grep -qv` would pass on almost any file — it asks whether SOME line
+          # fails to match. The question here is whether NO line matches.
+          ! grep -q 'The older thing' "$f"
+          echo "release notes extracted through the action"
+
+      # An undocumented version must FAIL the step. A release published with
+      # empty notes is the failure nobody notices.
+      - name: An undocumented version is refused
+        id: missing
+        continue-on-error: true
+        uses: ./.github/actions/changelog-notes
+        with:
+          tag: v9.9.9
+          path: ${{ runner.temp }}/notes-fixture
+
+      - name: ...and that refusal is a failure, not a warning
+        run: |
+          [ '${{ steps.missing.outcome }}' = 'failure' ] \
+            || { echo "the action exited 0 for a version with no changelog section"; exit 1; }
+          echo "a missing section fails the step"

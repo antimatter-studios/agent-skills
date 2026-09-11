@@ -217,6 +217,38 @@ path-filtered without ever stranding a merge.
 `install.sh` never writes into the working tree, so this file is untouched by an
 install or an upgrade.
 
+## Release notes from the changelog (CI)
+
+`git-changelog` blocks a version tag whose changelog section is missing. The
+same extraction writes the release body, so the thing that gates the tag and
+the thing that publishes the release cannot disagree:
+
+```sh
+.git/hooks/pre-push.d/git-changelog.sh notes v1.4.0    # locally
+```
+
+A CI checkout cannot see `.git/hooks`, so the same script is exposed as a
+composite action in this repository:
+
+```yaml
+      - id: notes
+        uses: antimatter-studios/agent-skills/.github/actions/changelog-notes@<sha>
+        with:
+          tag: ${{ github.ref_name }}
+      - run: gh release create "$TAG" --notes-file '${{ steps.notes.outputs.file }}'
+```
+
+Inputs: `tag` (required, leading `v` optional), `path` (the repo to read,
+default `.`), `output-file` (default under `RUNNER_TEMP`). Output: `file`. A
+version with no changelog section **fails the step** — a release published with
+empty notes is the mistake nobody notices.
+
+Pin the `@<sha>`, as with any third-party action. The action's own repository is
+checked out by the runner, so there is no copy of the script in the caller:
+two repos previously kept an entire stale hook tree in-tree purely to reach
+this one file from their release workflow, and their copy of the extraction had
+started to diverge from the guard's.
+
 ## Declaring private and generated paths
 
 Two guards act only on paths the repo names, because which directories hold
@@ -271,13 +303,20 @@ and does not block `tmpl/`.
   the failure that matters is a formatted file being re-staged along with the
   unstaged edits in it — remove that check and the suite shows `WORK IN
   PROGRESS` inside the commit.
+- `tests/changelog-notes.sh [githooks-dir]` — the `notes` subcommand as a
+  release tool: the body is the section and nothing from the neighbouring
+  version, the compare link spans the *previous* documented version, and a
+  version with no section fails loudly instead of emitting an empty release
+  body. The action's wiring (its `$GITHUB_ACTION_PATH` lookup, inputs, output
+  and that the failure is a failure) is exercised by CI, which is the only
+  place a runner can use it.
 - `tests/status-sh.sh [skill-dir]` — the four answers `status.sh` has to keep
   apart (current, older, local, missing), plus the exec bit, `core.hooksPath`,
   and the stranded-in-tree-guard note. Every case denies the neighbouring
   classification as well as asserting its own, since reporting local work as
   merely *older* is what makes a sweep delete it.
 
-All five take an optional path, so pointing them at another copy (a worktree of
+All six take an optional path, so pointing them at another copy (a worktree of
 an older commit, or a deployed `.git/hooks`) shows a regression fail rather than
 asserting it.
 

@@ -62,6 +62,20 @@ runs on your next commit: their code, your credentials, your checkout. Reviewing
 contributions locally is the normal case, so the guards live where no ref can
 reach them.
 
+### Release notes in CI
+
+`git-changelog` refuses to push a version tag the changelog does not document.
+The same extraction produces the release body, exposed as an action so a CI
+checkout needs no copy of the guard:
+
+```yaml
+      - id: notes
+        uses: antimatter-studios/agent-skills/.github/actions/changelog-notes@<sha>
+        with:
+          tag: ${{ github.ref_name }}
+      - run: gh release create "$TAG" --notes-file '${{ steps.notes.outputs.file }}'
+```
+
 ### Self-hosting (this repo)
 
 github-guard guards itself the same way every other repo does:
