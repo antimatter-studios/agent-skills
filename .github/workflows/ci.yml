@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 # One job, so the required status check is a single name that always reports —
-# see .githooks/required-checks. Adding a second job means adding an always-run
+# see .github-guard/required-checks. Adding a second job means adding an always-run
 # aggregate that `needs:` both, not requiring another name.
 jobs:
   ci:
@@ -25,7 +25,7 @@ jobs:
       # What counts as a script: any file with a shebang. Git hooks are
       # extensionless by necessity, so a name-based rule either misses the
       # dispatchers or sweeps up data files that live beside them —
-      # .githooks/required-checks was linted as shell on the first run here.
+      # .github-guard/required-checks was linted as shell on the first run here.
       - name: Collect scripts
         run: |
           set -euo pipefail
