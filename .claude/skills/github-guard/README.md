@@ -51,7 +51,8 @@ bash .claude/skills/github-guard/status.sh -v /path/to/repo   # or no arg = cwd
 
 It reports each repo as `current`, `behind` (matching an earlier release, named
 by its commit), `customised` (matching no release — someone improved it in
-place) or `inert` (`core.hooksPath` overriding it), and exits non-zero unless
+place), `stranded` (a tracked `.githooks/` still holding guards that no longer
+run) or `inert` (`core.hooksPath` overriding the lot), and exits non-zero unless
 everything named is current.
 
 **Why not an in-tree `.githooks/`?** Git resolves a hook path when it runs the

@@ -130,9 +130,29 @@ chmod +x "$repo/.githooks/pre-commit.d/repo-own.sh"
 printf 'Build & Test\n' > "$repo/.githooks/required-checks"
 out=$(status "$repo")
 says     "pre-commit.d/repo-own.sh no longer runs" "$out" "a repo's own in-tree guard is named"
+says     stranded "$out" "a repo with stranded in-tree guards reads as stranded"
+# Not `inert`: the installed hooks here run perfectly well. Sharing one word
+# with the core.hooksPath case sent a clean-up sweep at repos whose git config
+# was the fault and vice versa.
+says_not inert    "$out" x "stranded guards are NOT reported as an override"
 says_not required-checks "$out" x "in-tree DATA is not mistaken for a stranded guard"
 
-# --- 8. without history nothing can be dated, and the report admits it ------
+# --- 8. an override outranks everything else that could be said about a repo --
+target
+mkdir -p "$repo/.githooks/pre-commit.d"
+printf '#!/usr/bin/env bash
+exit 0
+' > "$repo/.githooks/pre-commit.d/repo-own.sh"
+chmod +x "$repo/.githooks/pre-commit.d/repo-own.sh"
+printf '#!/usr/bin/env bash
+# local
+' > "$hooks/pre-commit.d/g.sh"
+git -C "$repo" config core.hooksPath .githooks
+out=$(status "$repo")
+says     inert "$out" "an override outranks drift and stranded guards"
+says_not customised "$out" x "an override is not reported as the drift underneath it"
+
+# --- 9. without history nothing can be dated, and the report admits it ------
 # An installed skill (copied to ~/.claude/skills) has no history of its own. The
 # failure to avoid is a confident "local" on 40 repos that are merely behind.
 nohist="$root/nohistory/github-guard"

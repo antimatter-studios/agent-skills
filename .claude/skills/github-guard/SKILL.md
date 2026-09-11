@@ -277,7 +277,14 @@ Per repo it prints one of:
 | `current` | every payload file matches, byte for byte | nothing |
 | `behind` | a file matches an **earlier release** (named by commit), or is missing, or is not executable | re-run `install.sh` |
 | `customised` | a file matches **no release** — written in place, never upstreamed | read it, upstream what is worth keeping, *then* re-install |
-| `inert` | files match but `core.hooksPath` overrides them | clear the setting |
+| `stranded` | the installed files are right, but a tracked `.githooks/` still holds executables this layout no longer runs | move each into `.git/hooks/<hook>.d/` or delete it |
+| `inert` | `core.hooksPath` overrides `.git/hooks`, so nothing in it runs | clear the setting |
+
+`inert` outranks everything else — with the override set, what the installed
+files say is beside the point — and `stranded` is deliberately a separate word
+from it: an override is a repo whose guards do not run, while stranded guards
+are a repo whose guards run fine and whose *working tree* still carries the old
+arrangement. One word for both sent a clean-up at the wrong repos.
 
 The `behind` / `customised` split is the reason this exists. An older file is
 one to overwrite; a file nobody upstreamed is work, and a sweep that overwrites
