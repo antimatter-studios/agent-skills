@@ -42,6 +42,18 @@ The guards land in `<repo>/.git/hooks`, and the installer clears
 nothing to review — the hooks are per-clone, so each fresh clone re-runs the
 installer.
 
+Per-clone also means each copy can drift where `git status` cannot see it, so
+there is a read for that:
+
+```sh
+bash .claude/skills/github-guard/status.sh -v /path/to/repo   # or no arg = cwd
+```
+
+It reports each repo as `current`, `behind` (matching an earlier release, named
+by its commit), `customised` (matching no release — someone improved it in
+place) or `inert` (`core.hooksPath` overriding it), and exits non-zero unless
+everything named is current.
+
 **Why not an in-tree `.githooks/`?** Git resolves a hook path when it runs the
 hook, which for a checkout is *after* the working tree has been rewritten. With
 the hooks inside the tree, `git checkout some-forks-pr` replaces the hook that
