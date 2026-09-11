@@ -139,6 +139,22 @@ for target in "${repos[@]}"; do
   hp=$(git -C "$target" config --get core.hooksPath 2>/dev/null || true)
   [ -n "$hp" ] && notes+=("core.hooksPath=$hp overrides these hooks")
 
+  # A TRACKED copy of the payload under .githooks/ is the arrangement this
+  # layout replaced, still sitting in the working tree. It does not run — the
+  # installer clears core.hooksPath — so nothing here looks wrong, and that is
+  # the problem: it reads as the live guards to anyone who opens the repo, it
+  # is what a branch can rewrite, and it drifts. Counted separately from a
+  # repo's own strays below, because the fix is different: this is a commit
+  # deleting files, not a guard to rescue.
+  #
+  # Tracked, not merely present: an untracked leftover is one `rm` away and
+  # nobody else will ever see it, while a tracked one ships to every clone.
+  shadow=0
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    [ -f "$src/${t#.githooks/}" ] && shadow=$((shadow + 1))
+  done < <(git -C "$target" ls-files .githooks 2>/dev/null)
+
   # Executables under a tracked .githooks/ are guards this layout no longer runs.
   # required-checks is data, is 644, and correctly does not appear here.
   stranded=0
@@ -159,6 +175,7 @@ for target in "${repos[@]}"; do
   # state they read as the same problem, and the sweep that cleans the tree gets
   # pointed at repos whose git config is the actual fault.
   state=current
+  [ "$shadow" -gt 0 ] && state=in-tree
   [ "$stranded" -gt 0 ] && state=stranded
   [ $((older + missing + unarmed)) -gt 0 ] && state=behind
   [ "$local_edits" -gt 0 ] && state=customised
@@ -172,6 +189,8 @@ for target in "${repos[@]}"; do
   [ "$missing" -gt 0 ] && summary+="$missing missing "
   [ "$unarmed" -gt 0 ] && summary+="$unarmed not-executable "
   [ "$stranded" -gt 0 ] && summary+="$stranded stranded in .githooks/ "
+  if [ "$shadow" = 1 ]; then summary+="1 tracked copy in .githooks/ "
+  elif [ "$shadow" -gt 1 ]; then summary+="$shadow tracked copies in .githooks/ "; fi
   printf '%-52s %-11s %s\n' "$target" "$state" "${summary% }"
   for n in ${notes[@]+"${notes[@]}"}; do printf '%-52s   %s\n' "" "$n"; done
   if [ "$verbose" = 1 ]; then

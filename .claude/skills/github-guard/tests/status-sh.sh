@@ -137,7 +137,35 @@ says     stranded "$out" "a repo with stranded in-tree guards reads as stranded"
 says_not inert    "$out" x "stranded guards are NOT reported as an override"
 says_not required-checks "$out" x "in-tree DATA is not mistaken for a stranded guard"
 
-# --- 8. an override outranks everything else that could be said about a repo --
+# --- 8. a TRACKED copy of the payload under .githooks/ is its own finding ----
+# It does not run, so nothing looks wrong; it reads as the live guards to
+# anyone who opens the repo, it is what a branch can rewrite, and it drifts.
+target
+mkdir -p "$repo/.githooks/pre-commit.d"
+cp "$pay/githooks/pre-commit" "$repo/.githooks/pre-commit"
+cp "$pay/githooks/pre-commit.d/g.sh" "$repo/.githooks/pre-commit.d/g.sh"
+printf 'CI\n' > "$repo/.githooks/required-checks"
+git -C "$repo" add -A .githooks
+out=$(status -v "$repo")
+says "2 tracked copies" "$out" "tracked copies of the payload are counted"
+says in-tree            "$out" "a repo still carrying them reads as in-tree"
+says_not required-checks "$out" x "the repo's own data is not counted as a copy"
+
+target
+mkdir -p "$repo/.githooks"
+cp "$pay/githooks/pre-commit" "$repo/.githooks/pre-commit"
+git -C "$repo" add -A .githooks
+out=$(status "$repo")
+says "1 tracked copy in" "$out" "one copy is reported in the singular"
+
+# Untracked is not the same finding: one rm away, and it ships to nobody.
+target
+mkdir -p "$repo/.githooks"
+cp "$pay/githooks/pre-commit" "$repo/.githooks/pre-commit"
+out=$(status "$repo")
+says_not in-tree "$out" x "an untracked leftover is not reported as a tracked copy"
+
+# --- 9. an override outranks everything else that could be said about a repo --
 target
 mkdir -p "$repo/.githooks/pre-commit.d"
 printf '#!/usr/bin/env bash
@@ -152,7 +180,7 @@ out=$(status "$repo")
 says     inert "$out" "an override outranks drift and stranded guards"
 says_not customised "$out" x "an override is not reported as the drift underneath it"
 
-# --- 9. without history nothing can be dated, and the report admits it ------
+# --- 10. without history nothing can be dated, and the report admits it ------
 # An installed skill (copied to ~/.claude/skills) has no history of its own. The
 # failure to avoid is a confident "local" on 40 repos that are merely behind.
 nohist="$root/nohistory/github-guard"
