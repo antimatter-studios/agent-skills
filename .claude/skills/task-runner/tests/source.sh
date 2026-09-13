@@ -142,7 +142,7 @@ here = pathlib.Path(sys.argv[1])
 tree = ast.parse((here / "source.py").read_text())
 classes = {n.name: {i.name for i in n.body if isinstance(i, ast.FunctionDef)}
            for n in tree.body if isinstance(n, ast.ClassDef)}
-wanted = {"tasks", "said", "add", "insert_after", "block", "relabel", "done_or_not", "reopen", "say"}
+wanted = {"tasks", "said", "add", "insert_after", "block", "unblock", "relabel", "done_or_not", "reopen", "say"}
 wanted = wanted - {"done_or_not"} | {"mark_done"}
 for name in ("FileTasks", "IssueTasks"):
     missing = wanted - classes.get(name, set())
@@ -150,7 +150,7 @@ for name in ("FileTasks", "IssueTasks"):
         print(f"{name} cannot: {sorted(missing)}")
         sys.exit(1)
 cli = (here / "task.py").read_text()
-for verb in ("list", "show", "add", "split", "block", "label", "done", "reopen", "say"):
+for verb in ("list", "show", "add", "split", "block", "unblock", "label", "done", "reopen", "say"):
     if "what == " + chr(34) + verb + chr(34) not in cli:
         print(f"task.py has no {verb} command, so it will be written by hand instead")
         sys.exit(1)

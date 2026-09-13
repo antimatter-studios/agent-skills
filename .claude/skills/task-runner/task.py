@@ -11,6 +11,7 @@ markdown and markdown has backticks in it, and a backtick in a shell argument is
 substitution — which silently deleted three code names out of a task the first afternoon this CLI
 existed. A file cannot be eaten by the shell on the way past.
     task.py block <id> <on>           <id> cannot start until <on> is finished
+    task.py unblock <id> <on>         it was not waiting on that after all
     task.py label <id> +a -b          put a state on it, or take one off
     task.py done <id> [--check C]     finished; refuses if a label says it is waiting
     task.py reopen <id> "<why>"       un-close something that should not have been
@@ -90,6 +91,11 @@ def main():
     if what == "block":
         store.block({"id": int(rest[0])}, int(rest[1]))
         print(f"#{rest[0]} waits on #{rest[1]}")
+        return 0
+
+    if what == "unblock":
+        store.unblock({"id": int(rest[0])}, int(rest[1]))
+        print(f"#{rest[0]} no longer waits on #{rest[1]}")
         return 0
 
     if what == "label":
