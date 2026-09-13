@@ -424,6 +424,29 @@ Every other status **hands the job back**, and then whatever is left in it has t
 is a reason that existed for one turn and is now gone. `did:` is required in all of them: one line
 on what actually happened, which is the only record of that turn which survives it.
 
+## When it has to actually compel: `run.sh`
+
+**A Stop hook cannot compel anything, and the reason is structural rather than a bug.** It runs
+*after* a turn has already ended, exits 2, and that re-invokes the model with a message. It is a
+trigger, not a gate. Nothing in it constrains what the next turn contains — so a turn spent writing
+a summary satisfies every check it has, which is exactly what happened, repeatedly, on 13 September
+2026, and every lapse was caught by a person reading replies rather than by the loop.
+
+Compulsion has to live **outside the thing being compelled**. That is `run.sh`:
+
+    run.sh [max-tasks]
+
+The loop is a shell script. The model is a subprocess that gets one task at a time through
+`claude -p`. Between invocations the *script* decides what happened, by asking git and GitHub — not
+by reading what the model said about itself. A run that leaves no evidence is retried with the
+failure quoted back at it; a task that survives three of those is labelled `needs-respec` with an
+account of the attempts, and the queue moves on.
+
+The difference that matters: **the agent cannot end this loop.** Only evidence or exhaustion can.
+
+Use the Stop hook for interactive work, where a person is reading and the nudge is enough. Use
+`run.sh` when nobody is watching, or when the nudge has been shown not to be enough.
+
 ## The one check that is not a check on what you wrote
 
 Everything else in this file reads a sentence and asks whether the sentence is well formed. A turn
