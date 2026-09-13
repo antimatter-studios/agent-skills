@@ -410,6 +410,73 @@ class IssueTasks:
         # none of the context that made it obvious — so it does not count as having been filed
         return len((issue.get("body") or "").strip()) >= ENOUGH_TO_PICK_UP
 
+    def evidenceOn(self, number, since):
+        """What exists in git or GitHub, tied to this task, that was not there when it was handed out.
+
+        Not a report. Not a status. Not a sentence anybody wrote about their own turn — facts that
+        had to be *created*, and that a person can go and look at afterwards:
+
+          - a commit since hand-out whose message names the issue
+          - a pull request that references it
+          - the issue closed
+          - the issue labelled with a state that stops it
+          - a sub-issue of it that did not exist before
+
+        Every previous check in this runner asked the model to describe its own turn and then
+        checked the description was well formed. This asks the world instead. It cannot be answered
+        by writing anything.
+        """
+        found = []
+        try:
+            log = subprocess.run(
+                ["git", "log", f"{since}..HEAD", "--format=%h %s"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            for line in (log.stdout or "").splitlines():
+                if f"#{number}" in line:
+                    found.append(f"commit {line.split(' ')[0]}")
+        except FileNotFoundError:
+            pass
+
+        got = self._gh("issue", "view", str(number), "--json", "state,labels")
+        if got.returncode == 0:
+            issue = json.loads(got.stdout or "{}")
+            if issue.get("state") != "OPEN":
+                found.append("the issue is closed")
+            stuck = {l["name"] for l in issue.get("labels", [])} & STUCK_LABELS
+            if stuck:
+                found.append(f"labelled {', '.join(sorted(stuck))}")
+
+        prs = self._gh(
+            "pr", "list", "--state", "all", "--limit", "20", "--json", "number,title,body"
+        )
+        if prs.returncode == 0:
+            for pr in json.loads(prs.stdout or "[]"):
+                if f"#{number}" in (pr.get("title", "") + pr.get("body", "") or ""):
+                    found.append(f"pull request #{pr['number']}")
+                    break
+
+        # a sub-issue filed against it, which is the remainder case and the commonest honest
+        # outcome of a turn: the work was split rather than finished
+        sub = self._gh(
+            "issue",
+            "list",
+            "--search",
+            f"parent-issue:{number}",
+            "--state",
+            "all",
+            "--limit",
+            "5",
+            "--json",
+            "number",
+        )
+        if sub.returncode == 0 and json.loads(sub.stdout or "[]"):
+            found.append("a sub-issue of it exists")
+
+        return found
+
     def isChildOf(self, number, parent):
         """Is this issue actually a sub-issue of that one, as GitHub records it?
 

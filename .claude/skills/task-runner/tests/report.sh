@@ -204,4 +204,39 @@ if hook.driftedInsteadOfWorking({"status": "working", "did": "wrote the failing 
     sys.exit(1)
 '
 
+check "a turn with nothing in git or the tracker to show for it is sent back" run '
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("hook", pathlib.Path(sys.argv[1]) / "hook.py")
+hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
+body = (pathlib.Path(sys.argv[1]) / "hook.py").read_text()
+if "evidenceOn(" not in body:
+    print("the hook never asks the world whether anything happened")
+    sys.exit(1)
+if "Nothing exists that ties this turn to task" not in body:
+    print("it asks, and does nothing about the answer")
+    sys.exit(1)
+'
+
+check "the evidence is things that had to be created, not things that were written" run '
+import ast, pathlib, sys
+src = (pathlib.Path(sys.argv[1]) / "source.py").read_text()
+tree = ast.parse(src)
+body = None
+for node in ast.walk(tree):
+    if isinstance(node, ast.ClassDef) and node.name == "IssueTasks":
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef) and item.name == "evidenceOn":
+                body = ast.get_source_segment(src, item)
+if body is None:
+    print("IssueTasks cannot say what exists")
+    sys.exit(1)
+for must in ("git", "log", "state", "labels", "pr"):
+    if must not in body:
+        print("evidenceOn does not look at " + must)
+        sys.exit(1)
+if "said" in body or "did" in body.split(chr(34))[0]:
+    print("it is reading the report again, which is the thing that did not work")
+    sys.exit(1)
+'
+
 exit $((fails > 0))

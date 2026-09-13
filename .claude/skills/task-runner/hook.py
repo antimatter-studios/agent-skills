@@ -469,6 +469,42 @@ def main():
             + reportShape(held["id"])
         )
 
+    # ---- did anything actually happen? ----
+    #
+    # This is the only check in this file that is not a check on something the model wrote. Every
+    # other one — the status, the `did:` line, the numbers named — reads a sentence and asks whether
+    # the sentence is well formed, which a turn spent writing a summary answers perfectly.
+    #
+    # Chris, 13 September 2026: *"it has to be a mechanical constraint, otherwise it's useless... if
+    # you can just ignore it, what the fuck is the point?"* He is right, and this is the answer: ask
+    # the world rather than the account. A commit naming the issue, a pull request referencing it,
+    # the issue closed, the issue labelled, a sub-issue filed — all of them are things that had to be
+    # *created*, and none of them can be produced by writing a better paragraph.
+    #
+    # It still cannot compel. Exit 2 re-invokes; it does not hold a gun. What it does is make the
+    # turn come back, with the same task, saying nothing happened — every time, until something has.
+    if held is not None and run(held).get("asked") and hasattr(store, "evidenceOn"):
+        since = run(held).get("at")
+        shown = store.evidenceOn(held["id"], since) if since else ["no commit to measure from"]
+        if not shown:
+            state["bounces"] = bounces + 1
+            keep(state)
+            say(
+                [
+                    f"Nothing exists that ties this turn to task {held['id']}.",
+                    "",
+                    "Not a commit naming it, not a pull request referencing it, not a label on it, not a"
+                    " sub-issue of it, and it is not closed. Whatever was written this turn, the tracker"
+                    " and the repository are as they were when it was handed over.",
+                    "",
+                    "This is the one check here that does not read your own account of the turn, so it"
+                    " cannot be answered by writing anything. Do the work, or hand it back with a label"
+                    " — both leave a mark, which is the point.",
+                    "",
+                    f"    {held['what'].splitlines()[0]}",
+                ]
+            )
+
     # ---- did the model answer in the shape it was asked to? ----
     #
     # The verification turn only, and that is a decision rather than an omission. It was asked at
