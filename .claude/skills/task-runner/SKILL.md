@@ -70,6 +70,15 @@ to miss. Nobody notices an injury that never happens. Those are found by *counti
 Three jobs, none of them a substitute for the others: playtesting finds combinations, a red test
 locks one finding down for ever, and a bench or a sweep finds the things that are absent.
 
+**Which suggests the division of labour that actually holds.** The person does not need to read the
+code to say *"the mountain is standing in empty blue"* or *"the pot can never be full"* — and on the
+night this was written, observations of exactly that kind produced a worker leak, four separate
+gameplay faults, two rejected designs and most of this tool. None of them required knowing the
+codebase.
+
+So: **the person finds and describes; the model converts each finding into a red test that cannot
+come back.** Build the loop around that, rather than around a verification step nobody will perform.
+
 ## The two guards
 
 **Verify.** The turn ends with a task in hand. The hook does not advance. It runs that task's
@@ -106,11 +115,23 @@ start of a task *is* that task's acceptance condition. There is no extra work to
 **A check only tests what it was pointed at.** A grep for one string in one file proves that string
 is gone and nothing else — it can be satisfied by editing one word. Prefer the test that was red.
 
-**`by` records who wrote it**, and this is the part to keep honest. A check written by the person
-who wants the work is a specification. A check written by the model that will be graded on it is a
-hypothesis about itself — worth having, because it is committed in advance and in a file anybody can
-read, and not worth the same. Tasks the model splits out in the verify step are `by: "model"` and
-its own checks come with it. Read those before believing them.
+**Do not plan on the user writing them.** The obvious advice — have the person who wants the work
+write the standard it is judged by — is usually dead advice, and it was the first thing the person
+this was built for pointed out:
+
+> *"honestly speaking, I'm not going to write those checks, because I don't have enough knowledge of
+> the code to write them. So whilst it's a good idea, I'll never actually do that, better to be
+> honest about that upfront."*
+
+A design that quietly depends on something nobody will do is worse than one that admits it, because
+it lets everybody believe there is an independent standard when there is not. So assume the model
+writes the task and the check, and lean on the one property that survives that: **the check must be
+red when the task is written**, which `add.py` enforces by running it. Self-written or not, it is
+then a commitment made before the work and checkable by a machine rather than a claim made after.
+
+`by` records who asked for the task, which is still worth knowing — a task somebody dictated and a
+task the model split out of its own remainder are different things — but do not read it as a mark of
+independent verification. It is not one.
 
 A task with no check is marked `"unverified": true` when it is ticked, so every one is findable.
 
