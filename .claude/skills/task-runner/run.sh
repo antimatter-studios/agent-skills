@@ -17,7 +17,22 @@
 # The difference that matters: the agent cannot end this loop. Only evidence or exhaustion can.
 set -uo pipefail
 
-here="$(cd "$(dirname "$0")" && pwd)"
+# Run from a copy, so editing this file cannot corrupt a run already in progress.
+#
+# bash reads a script incrementally rather than all at once, so a long run reads its own later lines
+# off disk long after it started. Editing this file during a run therefore changes the script the
+# run is still reading — which on 13 September 2026 produced `syntax error near unexpected token
+# 'fi'` at line 86, partway through, because somebody added a lock file to it while it worked.
+if [ "${TASK_RUNNER_COPY:-}" != "1" ]; then
+  mine=$(mktemp -t task-runner)
+  cat "$0" > "$mine"
+  TASK_RUNNER_COPY=1 bash "$mine" "$@"
+  code=$?
+  rm -f "$mine"
+  exit $code
+fi
+
+here="${TASK_RUNNER_HOME:-$HOME/.claude/skills/task-runner}"
 
 # Say that this is driving, so the interactive session's Stop hook stands down. Without it both are
 # armed on one queue: the hook hands the open session the task the subprocess is already working,

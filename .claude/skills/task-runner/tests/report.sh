@@ -255,4 +255,17 @@ if "trap" not in runner:
     sys.exit(1)
 '
 
+check "the runner cannot be corrupted by editing it mid-run" run '
+import pathlib, sys
+runner = (pathlib.Path(sys.argv[1]) / "run.sh").read_text()
+# bash reads a script incrementally, so a long run reads its own later lines off disk long after it
+# started. Editing it during a run broke one at line 86 partway through.
+if "TASK_RUNNER_COPY" not in runner:
+    print("run.sh executes itself in place; an edit during a run corrupts it")
+    sys.exit(1)
+if "mktemp" not in runner:
+    print("it claims to copy itself and never makes a copy")
+    sys.exit(1)
+'
+
 exit $((fails > 0))
