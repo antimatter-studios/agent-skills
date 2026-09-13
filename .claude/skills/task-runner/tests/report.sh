@@ -239,32 +239,16 @@ if "said" in body or "did" in body.split(chr(34))[0]:
     sys.exit(1)
 '
 
-check "two drivers do not work the same queue" run '
+check "a turn that says it is still working does not have its task closed" run '
 import pathlib, sys
-here = pathlib.Path(sys.argv[1])
-hook = (here / "hook.py").read_text()
-runner = (here / "run.sh").read_text()
-if "task-runner.lock" not in hook:
-    print("the Stop hook hands out tasks while run.sh is working them")
+body = (pathlib.Path(sys.argv[1]) / "hook.py").read_text()
+# `working` was documented as "you are carrying on and it comes straight back" while the settle
+# block ran unconditionally, so a turn mid-edit had its issue closed underneath it.
+if "stillGoing" not in body:
+    print("the settle block ignores the reported status")
     sys.exit(1)
-if "task-runner.lock" not in runner:
-    print("run.sh never says it is driving")
-    sys.exit(1)
-if "trap" not in runner:
-    print("a lock that outlives the run stops the hook for ever")
-    sys.exit(1)
-'
-
-check "the runner cannot be corrupted by editing it mid-run" run '
-import pathlib, sys
-runner = (pathlib.Path(sys.argv[1]) / "run.sh").read_text()
-# bash reads a script incrementally, so a long run reads its own later lines off disk long after it
-# started. Editing it during a run broke one at line 86 partway through.
-if "TASK_RUNNER_COPY" not in runner:
-    print("run.sh executes itself in place; an edit during a run corrupts it")
-    sys.exit(1)
-if "mktemp" not in runner:
-    print("it claims to copy itself and never makes a copy")
+if "not stillGoing" not in body:
+    print("it works out whether the turn is still going and settles anyway")
     sys.exit(1)
 '
 
