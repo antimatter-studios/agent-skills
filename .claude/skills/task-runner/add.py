@@ -2,6 +2,7 @@
 """Append one task to .task-list.json, creating it if this is the first."""
 
 import json
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,12 +42,50 @@ def main():
             print(f"{LIST} is not readable as JSON; refusing to overwrite it", file=sys.stderr)
             sys.exit(1)
 
+    """
+    A check has to be RED when the task is written, or it is not evidence of anything.
+
+    This is the answer to the only real hole in the design — that the model usually writes both the
+    task and the thing it will be graded on, which is marking its own homework. A check chosen after
+    the fact, or chosen because it already passes, proves nothing at all; and that is not a matter
+    of good faith, it is a fact a machine can settle in one second. So the machine settles it: run
+    the check now, and refuse it if it is already green.
+
+    What survives is the red step from red-green, enforced at the moment the task is created rather
+    than trusted. A check that has been seen to fail, on a task written before the work, is a
+    genuinely different object from a claim made afterwards.
+
+    `--anyway` exists for the case where a check is legitimately green at the outset — a regression
+    guard on behaviour that already works, where the task is "keep this true while changing that".
+    It is recorded in the task so the reader knows the red step was skipped on purpose.
+    """
+    if check and "--anyway" not in sys.argv:
+        try:
+            ran = subprocess.run(check, shell=True, capture_output=True, text=True, timeout=900)
+        except subprocess.TimeoutExpired:
+            ran = None
+        if ran is not None and ran.returncode == 0:
+            print(
+                f"refusing this check: `{check}` already passes.\n"
+                "A check that is green before the work is not evidence the work happened — it is a\n"
+                "claim wearing the costume of a test. Write one that fails now and passes when the\n"
+                "task is done (the red test from red-green is exactly this), or leave the check off\n"
+                "and let the task be marked unverified.\n"
+                "If it is deliberately a regression guard on something that already works, pass "
+                "--anyway.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
     tasks = data.setdefault("tasks", [])
     task = {
         "id": max((t.get("id", 0) for t in tasks), default=0) + 1,
         "what": what,
         "by": by,
         "check": check,
+        # whether the check was seen to fail when this was written. False means somebody said
+        # --anyway, and the reader should know the red step did not happen
+        "was_red": bool(check) and "--anyway" not in sys.argv,
         "added": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "handed": None,
         "at": None,
