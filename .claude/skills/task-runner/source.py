@@ -37,16 +37,18 @@ import sys
 from pathlib import Path
 
 CHECK_IN_BODY = re.compile(r"<!--\s*check:\s*(.+?)\s*-->", re.S)
-# "must happen after", which GitHub has no native relation for.
+# "must happen after", which GitHub does have a native relation for — `addBlockedBy`, and a
+# `blockedBy` field on every issue, beside `blocking` and `issueDependenciesSummary`.
 #
-# Sub-issues are containment — *part of* — and that is a different thing from *before*. Item 89 here
-# unblocks 90, 91 and half of 82, and none of those is part of 89; they merely cannot start until it
-# is done. Making them children would misdescribe the work in the tracker to make the loop easier,
-# which is the wrong way round. So a line anybody would write anyway, read by the loop:
+# This file read a `Blocked by #25` line out of the body for a while, on my assertion that no such
+# relation existed. It does, I had looked for sub-issues and then stated a conclusion about
+# dependencies without checking, and Chris caught it. The text convention is kept as a *fallback*
+# only — an issue somebody wrote by hand still means what it says — but the relation is what is read
+# first, because it is structural, it shows in the interface, and it cannot drift from a reword.
 #
-#     Blocked by #25
-#
-# A task whose blocker is still open is skipped rather than handed out, and said so in the report.
+# Sub-issues remain a different thing and are still used for what they are: containment. Remainder
+# work genuinely *is* part of the task it split from; #26 is not part of #25, it merely cannot start
+# until #25 is done.
 BLOCKED_BY = re.compile(r"[Bb]locked by #(\d+)")
 LABEL = os.environ.get("TASK_LABEL", "task-runner")
 # a check that was seen to fail when the task was written is a different object from one that was
@@ -185,7 +187,7 @@ class IssueTasks:
         something queryable, visible in the interface, and impossible to get wrong by rewording.
         """
         done = self._gh("issue", "list", "--label", LABEL, "--state", "open",
-                        "--limit", "200", "--json", "number,title,body,author,labels,parent")
+                        "--limit", "200", "--json", "number,title,body,author,labels,parent,blockedBy")
         if done.returncode != 0:
             print(f"task-runner: cannot reach the issues on this repository — {done.stderr.strip()}",
                   file=sys.stderr)
@@ -204,7 +206,9 @@ class IssueTasks:
                 "needs_hands": any(l["name"] == HANDS_LABEL for l in issue.get("labels", [])),
                 "stuck": sorted({l["name"] for l in issue.get("labels", [])} & STUCK_LABELS),
                 "parent": (issue.get("parent") or {}).get("number"),
-                "blocked_by": [int(n) for n in BLOCKED_BY.findall(body)],
+                # the relation first; the written line only for issues nobody linked up
+                "blocked_by": sorted({i["number"] for i in (issue.get("blockedBy") or {}).get("nodes", [])}
+                                     | {int(n) for n in BLOCKED_BY.findall(body)}),
                 "done": None,
             })
         # anything still waiting on an open task is not workable yet, so it is not offered

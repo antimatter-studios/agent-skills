@@ -132,7 +132,8 @@ or invented:
 | `by` | issue **author** | GitHub knows this better than we could |
 | `check` | `<!-- check: … -->` in the body | no native field; invisible when rendered |
 | `was_red` | label **`check-was-red`** | visible at a glance and queryable |
-| remainder of a task | native **sub-issue** | `addSubIssue`; a relationship, not a sentence |
+| remainder of a task | native **sub-issue** | `addSubIssue`; containment — *part of* |
+| must happen after | native **`blockedBy`** | `addBlockedBy`; ordering, which is not containment |
 | ticked with no check | **closing comment** saying so | a state cannot carry *why* |
 | `handed`, `asked`, `at` | nothing — stays in `.git/` | belongs to the run, not to the repository |
 
@@ -336,8 +337,16 @@ nothing in the tracker could say so. **This is the common case and it is not a f
 not exist yet, a decision somebody else owes. Stays open and visible; the label comes off when the
 thing it was waiting for arrives.
 
-**Waiting on another task — `Blocked by #25`** in the body. Ordering rather than impossibility, and
-it resolves itself when #25 closes.
+**Waiting on another task — GitHub's own `blockedBy` relation.** `addBlockedBy`, with `blockedBy`,
+`blocking` and `issueDependenciesSummary` on every issue. Ordering rather than impossibility, and it
+resolves itself when the blocker closes.
+
+This file read a `Blocked by #25` line out of the body for a while, on an assertion that GitHub had
+no such relation. It does. The mistake is worth keeping because of its shape: sub-issues were looked
+up, found, and a conclusion about *dependencies* was then stated without looking — two different
+relations, one of them checked. The written line still works as a fallback for issues nobody has
+linked up, but the relation is read first: it is structural, it shows in the interface, and it cannot
+drift from a reword.
 
 **Decided against — close it, `--reason "not planned"`.** This one is rare and it is a *decision*,
 not an observation about who can do the work. Reach for it only when the task should not be done by
