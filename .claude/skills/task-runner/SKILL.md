@@ -297,20 +297,34 @@ The timeout has to exceed the slowest `check`, because the hook runs it. `TASK_C
 
 ## Work that cannot be done
 
-A queue that hands back a known-impossible task every time it comes round is a queue somebody stops
-reading, so there are three ways to take one out of circulation and they mean different things.
+A queue that hands back a task the model cannot do, every time it comes round, is a queue somebody
+stops reading. But the fix is **not** to close it — and that distinction is the whole of this
+section. Chris, 13 September 2026:
 
-**Decided against** — close it, `--reason "not planned"`. GitHub has this natively: the issue leaves
-the open queue on its own, shows a distinct icon, and the loop needs to know nothing about it. This
-is the right route for anything genuinely abandoned, and a label would be a worse version of it.
+> *"we might not want that issues vanish from the tracker, it's just that claude can't fix them,
+> which is a different thing."*
 
-**Blocked on something outside the repository** — the `cant-fix` label. The work is real and closing
-it would lose it, so it stays open and visible and stops being offered. Take the label off when
-whatever it was waiting on arrives.
+Exactly so. *The model cannot do this* and *nobody is going to do this* are unrelated statements, and
+conflating them silently abandons wanted work and makes it look like somebody decided to. Almost
+everything here stays **open**:
 
-**Needs a person** — `needs-hands`. A device, an eye, a judgement. The first task this queue ever
-offered was a phone layout whose remaining half was, in its own words, *"the part that wants a real
-thumb on real glass rather than an emulator"*, and nothing in the tracker could say so.
+**The model cannot do it — `needs-hands`.** A device, an eye, a judgement, taste, context it does not
+have. The work is real, wanted, and belongs in the tracker where a person will see it; it is simply
+not machine-work. The first task this queue ever offered was a phone layout whose remaining half was,
+in its own words, *"the part that wants a real thumb on real glass rather than an emulator"*, and
+nothing in the tracker could say so. **This is the common case and it is not a failure state.**
+
+**Blocked on something outside the repository — `cant-fix`.** An upstream release, an API that does
+not exist yet, a decision somebody else owes. Stays open and visible; the label comes off when the
+thing it was waiting for arrives.
+
+**Waiting on another task — `Blocked by #25`** in the body. Ordering rather than impossibility, and
+it resolves itself when #25 closes.
+
+**Decided against — close it, `--reason "not planned"`.** This one is rare and it is a *decision*,
+not an observation about who can do the work. Reach for it only when the task should not be done by
+anybody. If there is any doubt, label it and leave it open: an issue nobody can find again is worse
+than one that sits in the list with a reason attached.
 
 And **waiting on another task** — `Blocked by #25` in the body, which is ordering rather than
 impossibility and resolves itself when #25 closes.
