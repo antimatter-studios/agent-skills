@@ -308,16 +308,23 @@ Exactly so. *The model cannot do this* and *nobody is going to do this* are unre
 conflating them silently abandons wanted work and makes it look like somebody decided to. Almost
 everything here stays **open**:
 
-**The task is badly specified — rewrite it.** This is the first question to ask and usually the
-answer. Chris, on the same afternoon:
+**Tried and could not — `needs-respec`, with the attempt written down.** The commonest of these
+and the one worth getting right. Chris, on the same afternoon:
 
 > *"just cause claude can't fix it, doesn't mean the idea should be removed from the issue tracker,
 > because it might be just that the issue is not well specified and we should do it again."*
+> *"the issue is, claude has decided to not fix it because it tried and can't, so a human needs to
+> respecify the task."*
 
-A task nothing can act on is far more often a task that does not say enough than a task that cannot
-be done. The response is to make it sayable: write down what is missing, what you would need to
-know, and what a sharper version would ask for, and leave it open. That turns a dead end into the
-next pass, and it costs one comment. Reach for a label only after this has failed.
+A task nothing can act on is far more often a task that does not say enough than one that cannot be
+done. But the model **should not rewrite it itself** — it is the one that could not read it, so its
+version is likely wrong in the same way, and a confident respecification by the party that
+misunderstood is worse than none.
+
+So the label is the small part and the **attempt is the deliverable**: what was actually tried, what
+happened, where it stopped, and a best guess at what the task does not say. A person respecifies
+from that account, cheaply, because the expensive half — finding out what goes wrong when you try —
+has already been paid for. Take the label off when the issue has been rewritten.
 
 **The model cannot do it — `needs-hands`.** A device, an eye, a judgement, taste, context it does not
 have. The work is real, wanted, and belongs in the tracker where a person will see it; it is simply

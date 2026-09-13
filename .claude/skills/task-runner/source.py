@@ -77,7 +77,7 @@ HANDS_LABEL = os.environ.get("TASK_HANDS_LABEL", "needs-hands")
 # treatment as `needs-hands`, for the same reason. A queue that hands back a known-impossible task
 # every time it comes round is a queue somebody stops reading.
 STUCK_LABELS = {l.strip() for l in os.environ.get(
-    "TASK_STUCK_LABELS", "cant-fix,wont-fix,blocked").split(",") if l.strip()}
+    "TASK_STUCK_LABELS", "cant-fix,wont-fix,blocked,needs-respec").split(",") if l.strip()}
 
 
 class FileTasks:

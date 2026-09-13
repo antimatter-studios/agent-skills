@@ -160,16 +160,16 @@ def main():
             "  - Not finished: add the remaining work as new tasks INSERTED DIRECTLY BELOW this one,"
             " so the next guard picks up the rest of this same job while it is still in your head."
             " Then mark this one done.",
-            "  - You cannot do it: ask FIRST whether the task is badly specified rather than"
-            " impossible. Most of the time it is the former. Rewrite the issue — say what is missing,"
-            " what you would need to know, and what a sharper version of it would ask for — and leave"
-            " it open for the next pass. A vague task is not a dead one.",
-            "    Only when it is genuinely not writable: label it and LEAVE IT OPEN. `needs-hands` if"
-            " it wants a person — a device, an eye, a judgement, context you do not have. `cant-fix`"
-            " if it is blocked on something outside this repository. Both stay in the tracker,"
-            " because you being unable to do a thing is not a decision that it should not be done."
-            " Only close — reason `not planned` — when the task should not be done by anybody at all,"
-            " and say why in a comment.",
+            "  - You tried and could not: that is `needs-respec`, and the label is the small part."
+            " Comment with the ATTEMPT — what you actually did, what happened, where it stopped, and"
+            " your best guess at what the task does not say. Do not rewrite the task yourself: you"
+            " are the one who could not read it, so your version is likely wrong the same way. A"
+            " person respecifies it from your account, which is why the account is the deliverable.",
+            "    Other reasons it cannot go on, all of which LEAVE IT OPEN: `needs-hands` where it"
+            " wants a person's device, eye or judgement; `cant-fix` where it is blocked on something"
+            " outside this repository. You being unable to do a thing is not a decision that nobody"
+            " should. Only close — reason `not planned` — when it should not be done by anybody at"
+            " all, and say why.",
             "",
             "Do not leave it unanswered. Work that is skipped silently is the thing this exists to"
             " prevent; work that is written down as outstanding is fine.",
