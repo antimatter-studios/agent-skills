@@ -43,8 +43,29 @@ from pathlib import Path
 
 LIST = Path(os.environ.get("TASK_LIST", ".task-list.json"))
 MAX_BOUNCES = int(os.environ.get("TASK_LOOP_MAX", "40"))
-COUNTER = Path(".git/.task-runner-bounces")
 CHECK_TIMEOUT = int(os.environ.get("TASK_CHECK_TIMEOUT", "900"))
+
+# The run's own bookkeeping, kept apart from the work.
+#
+# Which task was handed out, when it was asked about, and what the repository was sitting on at the
+# time are facts about *this run on this machine*. They change every single turn. Keeping them in
+# the shared list would mean a diff on every turn and a merge conflict whenever two people ran it,
+# for information neither of them wants. The list is the queue and is worth committing; this is not.
+STATE = Path(".git/task-runner.json")
+
+
+def bookkeeping():
+    try:
+        return json.loads(STATE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"bounces": 0, "runs": {}}
+
+
+def keep(state):
+    try:
+        STATE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        pass                                   # no .git, or read-only: the loop still works
 
 
 def now():
@@ -90,13 +111,18 @@ def main():
         sys.exit(0)
 
     tasks = data.get("tasks", [])
-    bounces = int(COUNTER.read_text()) if COUNTER.exists() else 0
+    state = bookkeeping()
+    runs = state.setdefault("runs", {})
+    bounces = state.get("bounces", 0)
     if bounces >= MAX_BOUNCES:
-        COUNTER.unlink(missing_ok=True)
+        STATE.unlink(missing_ok=True)
         print(f"task-runner: stopping after {bounces} turns; work remains on the list.", file=sys.stderr)
         sys.exit(0)
 
-    held = next((t for t in tasks if t.get("handed") and not t.get("done")), None)
+    def run(task):
+        return runs.setdefault(str(task["id"]), {})
+
+    held = next((t for t in tasks if run(t).get("handed") and not t.get("done")), None)
 
     # ---- guard one: the task in hand has to be answered for before anything advances ----
     #
@@ -104,12 +130,12 @@ def main():
     # contradicting the answer a turn later is a worse conversation than asking a question that
     # already knows: a failing check turns "is it done?" into "it is not done, what is left?", which
     # is the question actually worth asking.
-    if held is not None and not held.get("asked"):
+    if held is not None and not run(held).get("asked"):
         check = held.get("check")
         verdict, why = (passes(check) if check else (None, ""))
-        held["asked"] = now()
-        LIST.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-        COUNTER.write_text(str(bounces + 1))
+        run(held)["asked"] = now()
+        state["bounces"] = bounces + 1
+        keep(state)
 
         if verdict is True:
             evidence = [f"Its check passes: `{check}`. That is evidence the symptom is gone — it is"
@@ -147,8 +173,8 @@ def main():
             if ok:
                 held["done"] = now()
             else:
-                COUNTER.write_text(str(bounces + 1))
-                LIST.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+                state["bounces"] = bounces + 1
+                keep(state)
                 say([
                     f"Task {held['id']} is not done: `{check}` still fails.",
                     f"    {why}" if why else "",
@@ -163,14 +189,15 @@ def main():
     following = next((t for t in tasks if not t.get("done")), None)
     if following is None:
         LIST.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-        COUNTER.unlink(missing_ok=True)
+        STATE.unlink(missing_ok=True)
         sys.exit(0)                                  # the list is empty: this is what done looks like
 
     # ---- guard two: hand over the first unfinished task ----
-    following["handed"] = now()
-    following["at"] = head()
+    run(following)["handed"] = now()
+    run(following)["at"] = head()
+    state["bounces"] = bounces + 1
+    keep(state)
     LIST.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    COUNTER.write_text(str(bounces + 1))
 
     left = sum(1 for t in tasks if not t.get("done"))
     lines = [f"Next task ({following['id']}), {left} outstanding:", "", f"    {following['what']}"]
