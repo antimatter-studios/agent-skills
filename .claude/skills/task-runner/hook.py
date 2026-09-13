@@ -160,10 +160,12 @@ def main():
             "  - Not finished: add the remaining work as new tasks INSERTED DIRECTLY BELOW this one,"
             " so the next guard picks up the rest of this same job while it is still in your head."
             " Then mark this one done.",
-            "  - Cannot be done at all: say which of the two it is and act on it, rather than leaving"
-            " it to come round again. Decided against is a close with reason `not planned`. Blocked"
-            " on something outside the repository is the `cant-fix` label, which stays open and stops"
-            " being offered. Needs a person — a device, an eye, a judgement — is `needs-hands`.",
+            "  - You cannot do it: label it and LEAVE IT OPEN. `needs-hands` if it wants a person —"
+            " a device, an eye, a judgement, context you do not have. `cant-fix` if it is blocked on"
+            " something outside this repository. Both stay in the tracker, because you being unable"
+            " to do a thing is not a decision that it should not be done, and closing it would quietly"
+            " abandon work somebody still wants. Only close — with reason `not planned` — when the"
+            " task should not be done by anybody at all, and say why in a comment.",
             "",
             "Do not leave it unanswered. Work that is skipped silently is the thing this exists to"
             " prevent; work that is written down as outstanding is fine.",
