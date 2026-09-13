@@ -5,6 +5,11 @@
     task.py show <id>                 one task, with everything written on it since
     task.py add "<text>" [--check C]  a task with no parent: a hole found next door
     task.py split <id> "<text>"       the REMAINDER of that job, as a sub-issue of it
+
+Anything longer than a line goes in a file: `--body-file <path>` instead of the text. A brief is
+markdown and markdown has backticks in it, and a backtick in a shell argument is a command
+substitution — which silently deleted three code names out of a task the first afternoon this CLI
+existed. A file cannot be eaten by the shell on the way past.
     task.py block <id> <on>           <id> cannot start until <on> is finished
     task.py label <id> +a -b          put a state on it, or take one off
     task.py done <id> [--check C]     finished; refuses if a label says it is waiting
@@ -70,13 +75,16 @@ def main():
 
     if what == "add":
         check = pull("--check")
-        made = store.add(rest[0], check=check)
+        body = pull("--body-file")
+        made = store.add(Path(body).read_text(encoding="utf-8") if body else rest[0], check=check)
         print(f"#{made}" if made else "could not create it")
         return 0 if made else 1
 
     if what == "split":
         check = pull("--check")
-        store.insert_after({"id": int(rest[0])}, rest[1], check=check)
+        body = pull("--body-file")
+        text = Path(body).read_text(encoding="utf-8") if body else rest[1]
+        store.insert_after({"id": int(rest[0])}, text, check=check)
         print(f"filed under #{rest[0]}")
         return 0
 
@@ -109,7 +117,8 @@ def main():
         return 0
 
     if what == "say":
-        store.say({"id": int(rest[0])}, rest[1])
+        body = pull("--body-file")
+        store.say({"id": int(rest[0])}, Path(body).read_text(encoding="utf-8") if body else rest[1])
         return 0
 
     print(__doc__, file=sys.stderr)

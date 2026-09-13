@@ -400,10 +400,9 @@ Everything above is an instruction, and an instruction is a thing the model can 
 while nothing notices. So the verification turn has to end with a block the hook reads:
 
     <task-runner-report task="13">
-    finished: yes|no
-    remainder: #41 #42 | none
-    blockers: #36 | none
-    holes: none
+    status: working|finished|blocked|needs-feedback|needs-hands|needs-respec
+    did: <one line on what actually happened this turn>
+    filed: #41 #42 | none
     </task-runner-report>
 
 Chris, 13 September 2026: *"task_complete:false, issues_created:[112,113] would be ok, because the
@@ -411,11 +410,23 @@ task is not complete and two tasks are created. But task_complete:false, issues_
 a failure, because if the task is not complete, claude is required to create issues to fill the
 gaps. But it didn't."*
 
+Asked at **every turn end that had a task in hand**, not only at the verification step. Chris, 13
+September 2026: *"each time we end a turn, we need to know, what did you work on and what the
+task_status is"*.
+
+`working` is why that is possible. A turn spent halfway through a job files nothing and has done
+nothing wrong — it says so, and the same task comes straight back. Every other status **hands the
+job back**, and then whatever is left in it has to be a task, or it is a reason that existed for one
+turn and is now gone. `did:` is the other half of the question and is required in all of them: one
+line on what actually happened, which is the only record of the turn that survives it.
+
 **The flags are claims, not evidence.** What makes them worth having is that every one is checked
 against the tracker before the turn is allowed to end, and a turn that does not hold up is sent
 back:
 
-- **unfinished and nothing filed** — the case above, and the reason the block exists.
+- **handed back and nothing filed** — the case above, and the reason the block exists. Not
+  `working`, which is allowed to file nothing.
+- **`did:` left empty** — a turn that ends without saying what happened in it.
 - **a number that does not exist** — a task can be named in a report and never created, and saying
   so is free.
 - **a task that exists and is empty** — a title with nothing under it satisfies "an issue exists"
