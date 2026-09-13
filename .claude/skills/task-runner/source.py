@@ -427,6 +427,15 @@ class IssueTasks:
         by writing anything.
         """
         found = []
+        # Uncommitted work counts, and leaving it out was the fault that made the first real run
+        # useless: three attempts each wrote a test file and sixty lines of source, and every one
+        # was reported as having left nothing, because nothing had been *committed* yet. A turn that
+        # writes a failing test and stops has done the most valuable part of the job.
+        dirt = subprocess.run(
+            ["git", "status", "--porcelain"], capture_output=True, text=True, check=False
+        ).stdout.strip()
+        if dirt:
+            found.append(f"{len(dirt.splitlines())} file(s) changed and not yet committed")
         try:
             log = subprocess.run(
                 ["git", "log", f"{since}..HEAD", "--format=%h %s"],
