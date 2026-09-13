@@ -239,4 +239,20 @@ if "said" in body or "did" in body.split(chr(34))[0]:
     sys.exit(1)
 '
 
+check "two drivers do not work the same queue" run '
+import pathlib, sys
+here = pathlib.Path(sys.argv[1])
+hook = (here / "hook.py").read_text()
+runner = (here / "run.sh").read_text()
+if "task-runner.lock" not in hook:
+    print("the Stop hook hands out tasks while run.sh is working them")
+    sys.exit(1)
+if "task-runner.lock" not in runner:
+    print("run.sh never says it is driving")
+    sys.exit(1)
+if "trap" not in runner:
+    print("a lock that outlives the run stops the hook for ever")
+    sys.exit(1)
+'
+
 exit $((fails > 0))

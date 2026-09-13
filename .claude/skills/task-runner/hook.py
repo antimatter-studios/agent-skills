@@ -340,6 +340,15 @@ def main():
         sys.exit(0)
     if event.get("stop_hook_active"):
         sys.exit(0)
+    # Somebody else is driving the queue.
+    #
+    # `run.sh` works the same list from outside the session, one `claude -p` at a time. With this
+    # hook also armed, the interactive session gets handed the task the subprocess is already on —
+    # two agents, one task, and whichever finishes second overwrites the first. Found within a
+    # minute of the runner's first real run.
+    if Path(".git/task-runner.lock").exists():
+        print("task-runner: run.sh is working the queue; leaving it to that", file=sys.stderr)
+        sys.exit(0)
     store = source()
     tasks = store.tasks()
     if not tasks:

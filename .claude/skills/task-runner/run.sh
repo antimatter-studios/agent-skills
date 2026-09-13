@@ -18,12 +18,22 @@
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
+
+# Say that this is driving, so the interactive session's Stop hook stands down. Without it both are
+# armed on one queue: the hook hands the open session the task the subprocess is already working,
+# and whichever finishes second overwrites the first. Cleared however this exits.
+lock=".git/task-runner.lock"
+printf '%s' "$$" > "$lock"
+trap 'rm -f "$lock"' EXIT INT TERM
 max=${1:-20}
 tried=0
 
 say() { printf '\n=== %s\n' "$*"; }
 
-next_task() { python3 "$here/task.py" list 2>/dev/null | grep -v 'waiting on' | head -1 | sed 's/^#\s*//;s/ .*//'; }
+# `awk` rather than `sed`, because BSD sed has no \s and the version of this that used one
+# returned an empty string on macOS — so the loop reported "queue empty" and exited without ever
+# invoking anything. Found by running it, which is the whole point of this file existing.
+next_task() { python3 "$here/task.py" list 2>/dev/null | grep -v 'waiting on' | head -1 | awk '{print $2}'; }
 
 evidence() {   # $1 = issue number, $2 = commit to measure from
   python3 - "$here" "$1" "$2" <<'PY'
@@ -55,7 +65,11 @@ written last time, the repository and the tracker are exactly as they were. Do t
 it back with a label. Both leave a mark. Writing about it does not."
     fi
 
-    claude -p "$prompt" --permission-mode acceptEdits >/dev/null 2>&1
+    # TASK_LOOP_MAX=0 disables the Stop hook INSIDE the subprocess, and without it this hangs.
+    # The nested session inherits this project's hooks, so it bounces itself up to forty times
+    # before returning — a loop inside the loop, each one handing itself the same task. The first
+    # run of this file never came back, which is how it was found.
+    TASK_LOOP_MAX=0 claude -p "$prompt" --permission-mode acceptEdits </dev/null >/dev/null 2>&1
 
     got=$(evidence "$task" "$base")
     if [ -n "$got" ]; then
