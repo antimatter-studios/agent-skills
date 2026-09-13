@@ -284,6 +284,25 @@ def main():
         return runs.setdefault(str(task["id"]), {})
 
     held = next((t for t in tasks if run(t).get("handed")), None)
+    # A task waiting on a person is not the task in hand any more.
+    #
+    # `mark_done` refuses to close one that carries a stuck label, which is right — a label is the
+    # more specific statement and a close is what happens when nothing else does. But it left the
+    # task HELD, so every turn after it ended with the hook asking about a job nobody was working
+    # on and nobody could finish, three times in a row while entirely different work went past.
+    #
+    # Being labelled IS the answer. It has been accounted for, it stays open where a person will
+    # see it, and the loop takes the next thing instead of asking the same unanswerable question
+    # for ever.
+    if held is not None and held.get("stuck"):
+        run(held)["parked"] = now()
+        run(held).pop("handed", None)
+        print(
+            f"task-runner: #{held['id']} is waiting on somebody ({', '.join(held['stuck'])});"
+            " moving on",
+            file=sys.stderr,
+        )
+        held = None
 
     # ---- guard one: the task in hand has to be answered for before anything advances ----
     #

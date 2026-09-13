@@ -146,4 +146,17 @@ if hook.whatTheModelSaid({}) != "unreadable":
     sys.exit(1)
 '
 
+check "a task waiting on a person stops being the task in hand" run '
+import pathlib, sys
+body = (pathlib.Path(sys.argv[1]) / "hook.py").read_text()
+# it stayed held for three turns running, so the hook asked about a job nobody could finish while
+# entirely different work went past
+if "held.get(" + chr(34) + "stuck" + chr(34) + ")" not in body:
+    print("a labelled task is still handed back every turn for ever")
+    sys.exit(1)
+if "held = None" not in body:
+    print("it is labelled and still in hand, which is the same loop")
+    sys.exit(1)
+'
+
 exit $((fails > 0))
