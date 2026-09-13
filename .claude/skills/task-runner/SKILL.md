@@ -337,11 +337,25 @@ happened, where it stopped, and a best guess at what the task does not say. A pe
 from that account, cheaply, because the expensive half — finding out what goes wrong when you try —
 has already been paid for. Take the label off when the issue has been rewritten.
 
-**The model cannot do it — `needs-hands`.** A device, an eye, a judgement, taste, context it does not
-have. The work is real, wanted, and belongs in the tracker where a person will see it; it is simply
-not machine-work. The first task this queue ever offered was a phone layout whose remaining half was,
-in its own words, *"the part that wants a real thumb on real glass rather than an emulator"*, and
-nothing in the tracker could say so. **This is the common case and it is not a failure state.**
+**It wants somebody's hands or eyes — `needs-hands`.** A device, a playtest, a look at the thing
+running. The first task this queue ever offered was a phone layout whose remaining half was, in its
+own words, *"the part that wants a real thumb on real glass rather than an emulator"*, and nothing
+in the tracker could say so. **This is the common case and it is not a failure state.**
+
+**It wants an answer — `needs-feedback`.** A fork only a person can choose, reached without anything
+going wrong. Chris, 13 September 2026: *"needs-hands I guess it means I need to play it,
+needs-feedback is perhaps when claude stops working on a task because it can't and needs feedback
+from somebody else"*. The two were one label for a day and the conflation showed immediately: of the
+four tasks marked `needs-hands` that afternoon, two were decisions — *may a farm clear only so far
+from its own buildings, or does a village deforest a county over a century?* — and no hand was
+wanted for either. A decision waiting on a person and a playtest waiting on a person stop the loop
+the same way and are answered in completely different ways, so they are not one state.
+
+Both leave the issue open, and **the label beats the close**. `mark_done` shut #5 minutes after it
+was labelled and given the fork to choose, because the no-check path closes on the model's word —
+two halves of this runner disagreeing about one fact, which is the fault it exists to catch, found
+in it. A label is the more specific and more recent statement; a close is what happens when nothing
+else does.
 
 **Blocked on something outside the repository — `cant-fix`.** An upstream release, an API that does
 not exist yet, a decision somebody else owes. Stays open and visible; the label comes off when the

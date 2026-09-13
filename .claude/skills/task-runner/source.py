@@ -79,7 +79,7 @@ HANDS_LABEL = os.environ.get("TASK_HANDS_LABEL", "needs-hands")
 # treatment as `needs-hands`, for the same reason. A queue that hands back a known-impossible task
 # every time it comes round is a queue somebody stops reading.
 STUCK_LABELS = {l.strip() for l in os.environ.get(
-    "TASK_STUCK_LABELS", "cant-fix,wont-fix,blocked,needs-respec").split(",") if l.strip()}
+    "TASK_STUCK_LABELS", "cant-fix,wont-fix,blocked,needs-respec,needs-feedback").split(",") if l.strip()}
 
 
 class FileTasks:
@@ -107,6 +107,15 @@ class FileTasks:
         for t in out:
             t["waiting_on"] = [n for n in t.get("blocked_by", []) if n in still_open]
         return out
+
+    def said(self, task):
+        """What has been said on this task since it was written.
+
+        A file has no comment thread, so this is empty and honestly so — the whole argument for
+        issues over a file is that other people can write on them. Present because the hook asks
+        both sources the same question and must not have to know which it is talking to.
+        """
+        return []
 
     def block(self, task, on):
         """Record that this task waits on another, which is ordering rather than impossibility.
@@ -243,12 +252,39 @@ class IssueTasks:
 
     def mark_done(self, task, when, verified=True):
         """Closing it is done. The comment says on what evidence, because that is the part a reader
-        will want and the part a state cannot carry."""
+        will want and the part a state cannot carry.
+
+        Except where the task is waiting for a person, and then it is emphatically not done.
+
+        This closed #5 on 13 September 2026 minutes after it had been labelled `needs-feedback` and
+        commented with the exact fork a person had to choose. Every label in `STUCK_LABELS` is
+        documented as LEAVING THE ISSUE OPEN — that is the whole difference between "the model
+        cannot do this" and "nobody should" — and then the no-check path closed it anyway on the
+        model's own word. Two halves of this runner disagreeing about one fact, which is the fault
+        it exists to catch, found in it.
+
+        The label wins, because the label is the more recent and more specific statement: a task
+        gets one at the moment somebody works out it cannot go on, and a close is what happens by
+        default when nothing else does.
+        """
+        stuck = sorted({l["name"] for l in self._labels(task["id"])} & STUCK_LABELS)
+        if stuck:
+            print(f"task-runner: #{task['id']} stays open — {', '.join(stuck)}", file=sys.stderr)
+            return
         why = (f"Closed by the task-runner at {when}: its check passed — `{task.get('check')}`."
                if verified and task.get("check") else
                f"Closed by the task-runner at {when} **without a check**. Nothing verified this but "
                "the model's own word; there was no mechanical condition to test it against.")
         self._gh("issue", "close", str(task["id"]), "--comment", why)
+
+    def _labels(self, issue):
+        """What this issue is labelled right now, asked again rather than remembered.
+
+        The task in hand was read at the start of the turn and the label that stops it is put on
+        during the turn, so a cached answer is the answer from before the thing happened.
+        """
+        got = self._gh("issue", "view", str(issue), "--json", "labels")
+        return json.loads(got.stdout or "{}").get("labels", []) if got.returncode == 0 else []
 
     def insert_after(self, task, what, check=None):
         """A new issue, made a real child of the one it came out of.
@@ -270,6 +306,34 @@ class IssueTasks:
         if not born:
             return
         self._adopt(task["id"], int(born.group(1)))
+
+    def said(self, task):
+        """Everything written on this task since, oldest first.
+
+        Chris, 2026-09-13: *"if we find that label, we read not just the issue, but all the comments
+        too as a list of things in time based order, so claude can understand the full context"*.
+
+        Asked of every task handed out rather than only the labelled ones, and that is deliberately
+        wider than asked for. A label says why the model stopped; it does not say whether anybody has
+        since written the answer. Gate on the label and the one case that gets missed is exactly the
+        one that matters — somebody replying on a ticket nobody marked.
+
+        It is also the hole this closes on the runner's own side: `say()` and `mark_done` have always
+        WRITTEN comments, and nothing has ever read one back. A record you only write to is a record
+        that is not part of the conversation.
+
+        One call, and only for the task about to be handed over. The list fetch cannot carry comments
+        and fetching them for the whole queue would be one call per issue for answers nobody is going
+        to read this turn.
+        """
+        got = self._gh("issue", "view", str(task["id"]), "--json", "comments")
+        if got.returncode != 0:
+            return []
+        out = []
+        for c in json.loads(got.stdout or "{}").get("comments", []):
+            who = (c.get("author") or {}).get("login", "?")
+            out.append({"by": who, "when": c.get("createdAt", ""), "what": (c.get("body") or "").strip()})
+        return out
 
     def block(self, task, on):
         """Record that this task waits on another, with the relation GitHub already has.

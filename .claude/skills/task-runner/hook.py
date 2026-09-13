@@ -269,6 +269,17 @@ def main():
     lines = [f"Next task ({following['id']}), {left} outstanding:", "", f"    {following['what']}"]
     if following.get("check"):
         lines += ["", f"Done when this passes: {following['check']}"]
+
+    # and everything written on it since, which is where the answers to anything it asked will be
+    said = store.said(following)
+    if said:
+        lines += ["", f"--- {len(said)} comment(s) on this task, oldest first. READ THEM BEFORE"
+                  " STARTING: a task that stopped for an answer has the answer here, and a task"
+                  " that did not may still have been argued about since it was written. ---"]
+        for note in said:
+            when = (note["when"] or "")[:10]
+            lines += ["", f"  [{when}] {note['by']}:", ""]
+            lines += [f"    {line}" for line in note["what"].splitlines()]
     say(lines)
 
 
