@@ -358,6 +358,16 @@ relations, one of them checked. The written line still works as a fallback for i
 linked up, but the relation is read first: it is structural, it shows in the interface, and it cannot
 drift from a reword.
 
+**Three kinds of follow-up, and they are not the same thing.** The verification step asks for all
+three whether or not the task finished, because a task that went green still found things and they
+are gone the moment the turn ends — the model is the only one who saw them, and nobody reading the
+diff later will know they were ever noticed. On 13 September 2026 one item produced all three: the
+*remainder* (a sub-issue of the job), a *blocker* found by trying it (its own task, with the
+original recorded as blocked by it — not a child, because it is not part of that job, it is in front
+of it), and a *hole* next door found while reading (its own task, no relation at all). The wording
+before that asked only on "not finished", so a clean completion that uncovered three things filed
+nothing.
+
 **Say so with `source.block`.** For a while the loop could *obey* a blocker and not *create* one, so
 the only ways to record ordering were a person adding it in the interface or a body line a reword
 could quietly undo — and a relation the loop obeys but cannot write is a relation that mostly does
