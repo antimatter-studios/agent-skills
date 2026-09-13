@@ -37,8 +37,6 @@ import sys
 from pathlib import Path
 
 CHECK_IN_BODY = re.compile(r"<!--\s*check:\s*(.+?)\s*-->", re.S)
-# how a remainder issue says which job it came out of, so the loop can take it next
-SPLIT_OF = re.compile(r"Split out of #(\d+)")
 LABEL = os.environ.get("TASK_LABEL", "task-runner")
 # a check that was seen to fail when the task was written is a different object from one that was
 # not, and a label is the only thing on an issue that is visible at a glance and queryable
@@ -113,13 +111,13 @@ class IssueTasks:
         the remainder of a job would come back after everything else on the list with all its
         context gone. That is exactly the behaviour "insert below" exists to prevent.
 
-        Nothing needs an ordering field to fix it. Remainder issues say `Split out of #5` in their
-        body — the hook writes it and a reader wants it there anyway — so an issue that came out of
-        the task just finished goes to the front. Depth-first, expressed in the only thing issues
-        have, which is words.
+        GitHub has the structure for it natively — `addSubIssue`, and a `parent` on every issue —
+        so remainder work is a real **sub-issue** of the job it came out of rather than a sentence
+        about one. Children of the task just settled go first, which is depth-first expressed in
+        something queryable, visible in the interface, and impossible to get wrong by rewording.
         """
         done = self._gh("issue", "list", "--label", LABEL, "--state", "open",
-                        "--limit", "200", "--json", "number,title,body,author,labels")
+                        "--limit", "200", "--json", "number,title,body,author,labels,parent")
         if done.returncode != 0:
             print(f"task-runner: cannot reach the issues on this repository — {done.stderr.strip()}",
                   file=sys.stderr)
@@ -135,11 +133,11 @@ class IssueTasks:
                 # who asked for it, which GitHub already knows better than we could
                 "by": (issue.get("author") or {}).get("login", "?"),
                 "was_red": any(l["name"] == RED_LABEL for l in issue.get("labels", [])),
-                "split_of": SPLIT_OF.search(body).group(1) if SPLIT_OF.search(body) else None,
+                "parent": (issue.get("parent") or {}).get("number"),
                 "done": None,
             })
         if after is not None:
-            out.sort(key=lambda t: (t.get("split_of") != str(after), t["id"]))
+            out.sort(key=lambda t: (t.get("parent") != after, t["id"]))
         return out
 
     def mark_done(self, task, when, verified=True):
@@ -152,19 +150,37 @@ class IssueTasks:
         self._gh("issue", "close", str(task["id"]), "--comment", why)
 
     def insert_after(self, task, what, check=None):
-        """A new issue, cross-referenced to the one it came out of.
+        """A new issue, made a real child of the one it came out of.
 
-        Issues cannot be reordered, so "below" is expressed the way issues express
-        everything — in words, and by number. The next one handed out is the lowest
-        open number, so remainder work opened now lands *after* its parent and before
-        anything anybody opens later, which is the behaviour the file gives by position.
+        Not a sentence saying so: `addSubIssue` is a mutation, `parent` is a field, and the
+        relationship shows up in the interface for whoever is reading rather than only in a regex
+        the hook happens to run. The loop takes children of the task it just settled before anything
+        else, which is what "insert below" meant in the file.
         """
-        body = f"Split out of #{task['id']}, which could not be finished in one turn.\n\n{what}\n"
+        body = f"{what}\n"
         if check:
             body += f"\n<!-- check: {check} -->\n"
         labels = [LABEL] + ([RED_LABEL] if check else [])
-        self._gh("issue", "create", "--label", ",".join(labels),
-                 "--title", what.split("\n")[0][:120], "--body", body)
+        made = self._gh("issue", "create", "--label", ",".join(labels),
+                        "--title", what.split("\n")[0][:120], "--body", body)
+        if made.returncode != 0:
+            return
+        born = re.search(r"/issues/(\d+)", made.stdout or "")
+        if not born:
+            return
+        self._adopt(task["id"], int(born.group(1)))
+
+    def _adopt(self, parent, child):
+        """Make one issue the child of another, by node id, which is what the mutation wants."""
+        # `gh issue view --json id` gives the node id without this having to know owner or name
+        ids = {}
+        for number in (parent, child):
+            got = self._gh("issue", "view", str(number), "--json", "id")
+            if got.returncode != 0:
+                return
+            ids[number] = json.loads(got.stdout)["id"]
+        self._gh("api", "graphql", "-f", "query=mutation($p:ID!,$c:ID!){addSubIssue(input:{issueId:$p,subIssueId:$c}){clientMutationId}}",
+                 "-f", f"p={ids[parent]}", "-f", f"c={ids[child]}")
 
 
 def isGitHub():

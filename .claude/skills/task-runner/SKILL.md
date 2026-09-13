@@ -132,15 +132,32 @@ or invented:
 | `by` | issue **author** | GitHub knows this better than we could |
 | `check` | `<!-- check: … -->` in the body | no native field; invisible when rendered |
 | `was_red` | label **`check-was-red`** | visible at a glance and queryable |
+| remainder of a task | native **sub-issue** | `addSubIssue`; a relationship, not a sentence |
 | ticked with no check | **closing comment** saying so | a state cannot carry *why* |
 | `handed`, `asked`, `at` | nothing — stays in `.git/` | belongs to the run, not to the repository |
 
-**The one that does not map is order.** Issue numbers are creation order, so splitting task 5 opens
-issue 31, and 31 sorts last — the remainder of a job would come back after everything else with its
-context gone, which is precisely what "insert below" exists to prevent. No ordering field is needed
-to fix it: a remainder issue says `Split out of #5` in its body, which the hook writes and a reader
-wants there anyway, so an issue that came out of the task just finished goes to the front. Depth
-first, expressed in the only thing issues have, which is words.
+**Order looks like the one that does not map, and it does.** Issue numbers are creation order, so
+splitting task 5 opens issue 31 and 31 sorts last — the remainder of a job would come back after
+everything else with its context gone, which is what "insert below" exists to prevent.
+
+GitHub has the structure natively: `addSubIssue`, a `parent` on every issue, and even
+`reprioritizeSubIssue` for ordering among children. So remainder work becomes a real **sub-issue**
+of the job it came out of, the loop takes children of the task it just settled before anything else,
+and the relationship is visible in the interface to whoever is reading rather than living in a regex
+the hook happens to run.
+
+### Checks that are more than one line
+
+There is **no attachment API** — issue attachments are drag-and-drop in the browser and nothing
+else, so a validation script cannot be attached programmatically. That is no loss, because a file in
+the repository beats an attachment on every count: it is versioned, it is reviewed in the pull
+request that changes it, it diffs, and it runs without anybody downloading anything.
+
+    checks/95.sh                          a script of any length
+    <!-- check: sh checks/95.sh -->       which is still one shell command
+
+So the same field carries `test -f done.txt` and a hundred lines of setup, teardown and assertions.
+Nothing about the mechanism changes; only the length of what it points at.
 
 ### Why issues, given a file is faster
 
