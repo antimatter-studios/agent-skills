@@ -36,7 +36,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-CHECK_IN_BODY = re.compile(r"<!--\s*check:\s*(.+?)\s*-->", re.S)
+CHECK_IN_BODY = re.compile(r"<!--\s*check:\s*(.+?)\s*-->", re.DOTALL)
 # "must happen after", which GitHub does have a native relation for — `addBlockedBy`, and a
 # `blockedBy` field on every issue, beside `blocking` and `issueDependenciesSummary`.
 #
@@ -78,8 +78,13 @@ HANDS_LABEL = os.environ.get("TASK_HANDS_LABEL", "needs-hands")
 # repository, and closing it would lose it. It stays open, wears a label, and is skipped — the same
 # treatment as `needs-hands`, for the same reason. A queue that hands back a known-impossible task
 # every time it comes round is a queue somebody stops reading.
-STUCK_LABELS = {l.strip() for l in os.environ.get(
-    "TASK_STUCK_LABELS", "cant-fix,wont-fix,blocked,needs-respec,needs-feedback").split(",") if l.strip()}
+STUCK_LABELS = {
+    l.strip()
+    for l in os.environ.get(
+        "TASK_STUCK_LABELS", "cant-fix,wont-fix,blocked,needs-respec,needs-feedback"
+    ).split(",")
+    if l.strip()
+}
 
 
 class FileTasks:
@@ -125,7 +130,7 @@ class FileTasks:
         self._write(data)
         return made
 
-    def label(self, task, add=(), remove=()):
+    def relabel(self, task, add=(), remove=()):
         """A file has no labels, so the states live in a field of their own."""
         data = self._read()
         for t in data.get("tasks", []):
@@ -182,10 +187,16 @@ class FileTasks:
         data = self._read()
         tasks = data.setdefault("tasks", [])
         at = next((i + 1 for i, t in enumerate(tasks) if t.get("id") == task["id"]), len(tasks))
-        tasks.insert(at, {
-            "id": max((t.get("id", 0) for t in tasks), default=0) + 1,
-            "what": what, "by": "model", "check": check, "done": None,
-        })
+        tasks.insert(
+            at,
+            {
+                "id": max((t.get("id", 0) for t in tasks), default=0) + 1,
+                "what": what,
+                "by": "model",
+                "check": check,
+                "done": None,
+            },
+        )
         self._write(data)
 
 
@@ -212,7 +223,7 @@ class IssueTasks:
         cmd = ["gh", *args]
         if self.repo:
             cmd += ["--repo", self.repo]
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=60, **kw)
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=60, **kw, check=False)
 
     def tasks(self, after=None):
         """Open issues, in the order the loop should take them.
@@ -227,31 +238,47 @@ class IssueTasks:
         about one. Children of the task just settled go first, which is depth-first expressed in
         something queryable, visible in the interface, and impossible to get wrong by rewording.
         """
-        done = self._gh("issue", "list", "--label", LABEL, "--state", "open",
-                        "--limit", "200", "--json", "number,title,body,author,labels,parent,blockedBy")
+        done = self._gh(
+            "issue",
+            "list",
+            "--label",
+            LABEL,
+            "--state",
+            "open",
+            "--limit",
+            "200",
+            "--json",
+            "number,title,body,author,labels,parent,blockedBy",
+        )
         if done.returncode != 0:
-            print(f"task-runner: cannot reach the issues on this repository — {done.stderr.strip()}",
-                  file=sys.stderr)
+            print(
+                f"task-runner: cannot reach the issues on this repository — {done.stderr.strip()}",
+                file=sys.stderr,
+            )
             return []
         out = []
         for issue in sorted(json.loads(done.stdout or "[]"), key=lambda i: i["number"]):
             body = issue.get("body") or ""
             found = CHECK_IN_BODY.search(body)
-            out.append({
-                "id": issue["number"],
-                "what": (issue["title"] + "\n\n" + CHECK_IN_BODY.sub("", body).strip()).strip(),
-                "check": found.group(1).strip() if found else None,
-                # who asked for it, which GitHub already knows better than we could
-                "by": (issue.get("author") or {}).get("login", "?"),
-                "was_red": any(l["name"] == RED_LABEL for l in issue.get("labels", [])),
-                "needs_hands": any(l["name"] == HANDS_LABEL for l in issue.get("labels", [])),
-                "stuck": sorted({l["name"] for l in issue.get("labels", [])} & STUCK_LABELS),
-                "parent": (issue.get("parent") or {}).get("number"),
-                # the relation first; the written line only for issues nobody linked up
-                "blocked_by": sorted({i["number"] for i in (issue.get("blockedBy") or {}).get("nodes", [])}
-                                     | {int(n) for n in BLOCKED_BY.findall(body)}),
-                "done": None,
-            })
+            out.append(
+                {
+                    "id": issue["number"],
+                    "what": (issue["title"] + "\n\n" + CHECK_IN_BODY.sub("", body).strip()).strip(),
+                    "check": found.group(1).strip() if found else None,
+                    # who asked for it, which GitHub already knows better than we could
+                    "by": (issue.get("author") or {}).get("login", "?"),
+                    "was_red": any(l["name"] == RED_LABEL for l in issue.get("labels", [])),
+                    "needs_hands": any(l["name"] == HANDS_LABEL for l in issue.get("labels", [])),
+                    "stuck": sorted({l["name"] for l in issue.get("labels", [])} & STUCK_LABELS),
+                    "parent": (issue.get("parent") or {}).get("number"),
+                    # the relation first; the written line only for issues nobody linked up
+                    "blocked_by": sorted(
+                        {i["number"] for i in (issue.get("blockedBy") or {}).get("nodes", [])}
+                        | {int(n) for n in BLOCKED_BY.findall(body)}
+                    ),
+                    "done": None,
+                }
+            )
         # anything still waiting on an open task is not workable yet, so it is not offered
         open_now = {t["id"] for t in out}
         for t in out:
@@ -312,10 +339,12 @@ class IssueTasks:
         if stuck:
             print(f"task-runner: #{task['id']} stays open — {', '.join(stuck)}", file=sys.stderr)
             return
-        why = (f"Closed by the task-runner at {when}: its check passed — `{task.get('check')}`."
-               if verified and task.get("check") else
-               f"Closed by the task-runner at {when} **without a check**. Nothing verified this but "
-               "the model's own word; there was no mechanical condition to test it against.")
+        why = (
+            f"Closed by the task-runner at {when}: its check passed — `{task.get('check')}`."
+            if verified and task.get("check")
+            else f"Closed by the task-runner at {when} **without a check**. Nothing verified this but "
+            "the model's own word; there was no mechanical condition to test it against."
+        )
         self._gh("issue", "close", str(task["id"]), "--comment", why)
 
     def _labels(self, issue):
@@ -339,8 +368,16 @@ class IssueTasks:
         if check:
             body += f"\n<!-- check: {check} -->\n"
         labels = [LABEL] + ([RED_LABEL] if check else [])
-        made = self._gh("issue", "create", "--label", ",".join(labels),
-                        "--title", what.split("\n")[0][:120], "--body", body)
+        made = self._gh(
+            "issue",
+            "create",
+            "--label",
+            ",".join(labels),
+            "--title",
+            what.split("\n")[0][:120],
+            "--body",
+            body,
+        )
         if made.returncode != 0:
             return
         born = re.search(r"/issues/(\d+)", made.stdout or "")
@@ -389,14 +426,22 @@ class IssueTasks:
         """
         body = what + ("" if not check else f"\n\n<!-- check: {check} -->\n")
         names = [LABEL] + ([RED_LABEL] if check else []) + list(labels)
-        made = self._gh("issue", "create", "--label", ",".join(names),
-                        "--title", what.split("\n")[0][:120], "--body", body)
+        made = self._gh(
+            "issue",
+            "create",
+            "--label",
+            ",".join(names),
+            "--title",
+            what.split("\n")[0][:120],
+            "--body",
+            body,
+        )
         if made.returncode != 0:
             return None
         born = re.search(r"/issues/(\d+)", made.stdout or "")
         return int(born.group(1)) if born else None
 
-    def label(self, task, add=(), remove=()):
+    def relabel(self, task, add=(), remove=()):
         """Put a state on a task or take one off. See STUCK_LABELS for what they mean."""
         args = ["issue", "edit", str(task["id"])]
         for name in add:
@@ -442,7 +487,9 @@ class IssueTasks:
         out = []
         for c in json.loads(got.stdout or "{}").get("comments", []):
             who = (c.get("author") or {}).get("login", "?")
-            out.append({"by": who, "when": c.get("createdAt", ""), "what": (c.get("body") or "").strip()})
+            out.append(
+                {"by": who, "when": c.get("createdAt", ""), "what": (c.get("body") or "").strip()}
+            )
         return out
 
     def block(self, task, on):
@@ -460,9 +507,16 @@ class IssueTasks:
             if got.returncode != 0:
                 return
             ids[number] = json.loads(got.stdout)["id"]
-        self._gh("api", "graphql",
-                 "-f", "query=mutation($i:ID!,$b:ID!){addBlockedBy(input:{issueId:$i,blockingIssueId:$b}){clientMutationId}}",
-                 "-f", f"i={ids[task['id']]}", "-f", f"b={ids[on]}")
+        self._gh(
+            "api",
+            "graphql",
+            "-f",
+            "query=mutation($i:ID!,$b:ID!){addBlockedBy(input:{issueId:$i,blockingIssueId:$b}){clientMutationId}}",
+            "-f",
+            f"i={ids[task['id']]}",
+            "-f",
+            f"b={ids[on]}",
+        )
 
     def _adopt(self, parent, child):
         """Make one issue the child of another, by node id, which is what the mutation wants."""
@@ -473,8 +527,16 @@ class IssueTasks:
             if got.returncode != 0:
                 return
             ids[number] = json.loads(got.stdout)["id"]
-        self._gh("api", "graphql", "-f", "query=mutation($p:ID!,$c:ID!){addSubIssue(input:{issueId:$p,subIssueId:$c}){clientMutationId}}",
-                 "-f", f"p={ids[parent]}", "-f", f"c={ids[child]}")
+        self._gh(
+            "api",
+            "graphql",
+            "-f",
+            "query=mutation($p:ID!,$c:ID!){addSubIssue(input:{issueId:$p,subIssueId:$c}){clientMutationId}}",
+            "-f",
+            f"p={ids[parent]}",
+            "-f",
+            f"c={ids[child]}",
+        )
 
 
 def isGitHub():
@@ -494,7 +556,9 @@ def isGitHub():
     rather than a reason to go quiet and local.
     """
     try:
-        remotes = subprocess.run(["git", "remote", "-v"], capture_output=True, text=True, timeout=10)
+        remotes = subprocess.run(
+            ["git", "remote", "-v"], capture_output=True, text=True, timeout=10, check=False
+        )
     except (OSError, subprocess.TimeoutExpired):
         return False
     return "github.com" in remotes.stdout
@@ -523,5 +587,8 @@ def source():
         return FileTasks(os.environ.get("TASK_LIST", ".task-list.json"))
     if want in ("github", "issues", "gh"):
         return IssueTasks(os.environ.get("TASK_REPO"))
-    return IssueTasks(None) if isGitHub() else FileTasks(
-        os.environ.get("TASK_LIST", ".task-list.json"))
+    return (
+        IssueTasks(None)
+        if isGitHub()
+        else FileTasks(os.environ.get("TASK_LIST", ".task-list.json"))
+    )

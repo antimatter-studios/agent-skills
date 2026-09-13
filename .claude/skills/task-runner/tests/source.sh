@@ -142,7 +142,7 @@ here = pathlib.Path(sys.argv[1])
 tree = ast.parse((here / "source.py").read_text())
 classes = {n.name: {i.name for i in n.body if isinstance(i, ast.FunctionDef)}
            for n in tree.body if isinstance(n, ast.ClassDef)}
-wanted = {"tasks", "said", "add", "insert_after", "block", "label", "done_or_not", "reopen", "say"}
+wanted = {"tasks", "said", "add", "insert_after", "block", "relabel", "done_or_not", "reopen", "say"}
 wanted = wanted - {"done_or_not"} | {"mark_done"}
 for name in ("FileTasks", "IssueTasks"):
     missing = wanted - classes.get(name, set())
@@ -170,6 +170,16 @@ for node in ast.walk(tree):
         if "addSubIssue" in body or "_adopt" in body:
             print("add() makes a child, which claims a relationship that does not exist")
             sys.exit(1)
+'
+
+check "the store name is a name, not a method that shadowed it" run '
+import sys, pathlib
+sys.path.insert(0, sys.argv[1])
+from source import FileTasks, IssueTasks
+for cls in (FileTasks, IssueTasks):
+    if not isinstance(getattr(cls, "label", None), str):
+        print(f"{cls.__name__}.label is not a string; something has shadowed it")
+        sys.exit(1)
 '
 
 exit $((fails > 0))

@@ -1,0 +1,27 @@
+# What ruff is asked to care about here, and what it is told to leave alone.
+#
+# The point of turning rules off is that the ones left on are worth reading. `python-lint` ran as a
+# no-op for months because ruff was not installed, and the first run of it found a real bug in ten
+# seconds — a `label()` method shadowing the `label` class attribute the hook prints, so the one
+# message the model reads would have said `<bound method ...>` where the store's name belongs.
+#
+# That is what this is for. A linter that also complains about twenty deliberate line-wraps is one
+# nobody reads to the bottom of, and the bug in the middle goes with it.
+
+line-length = 100
+
+[lint]
+# the defaults, plus the two families that catch the mistakes actually made in this file: dead or
+# shadowed names, and subprocess calls whose failure would pass silently
+extend-select = ["F", "I", "PLW", "RUF"]
+ignore = [
+  # Adjacent string literals across lines. Every long message in the hook is written that way on
+  # purpose — it is prose the model reads, wrapped to stay legible in the source.
+  "ISC001", "ISC002", "ISC003", "ISC004",
+  # `noqa: E402` on the sys.path insert. E402 is not enabled, but the directive documents why the
+  # import is where it is, which is worth more than the rule that objects to it being redundant.
+  "RUF100",
+  # `["a"] + more` instead of `["a", *more]`. Every message the hook prints is built that way and
+  # reads as one list followed by another, which is what it is.
+  "RUF005",
+]
