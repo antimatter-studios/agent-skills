@@ -160,12 +160,16 @@ def main():
             "  - Not finished: add the remaining work as new tasks INSERTED DIRECTLY BELOW this one,"
             " so the next guard picks up the rest of this same job while it is still in your head."
             " Then mark this one done.",
-            "  - You cannot do it: label it and LEAVE IT OPEN. `needs-hands` if it wants a person —"
-            " a device, an eye, a judgement, context you do not have. `cant-fix` if it is blocked on"
-            " something outside this repository. Both stay in the tracker, because you being unable"
-            " to do a thing is not a decision that it should not be done, and closing it would quietly"
-            " abandon work somebody still wants. Only close — with reason `not planned` — when the"
-            " task should not be done by anybody at all, and say why in a comment.",
+            "  - You cannot do it: ask FIRST whether the task is badly specified rather than"
+            " impossible. Most of the time it is the former. Rewrite the issue — say what is missing,"
+            " what you would need to know, and what a sharper version of it would ask for — and leave"
+            " it open for the next pass. A vague task is not a dead one.",
+            "    Only when it is genuinely not writable: label it and LEAVE IT OPEN. `needs-hands` if"
+            " it wants a person — a device, an eye, a judgement, context you do not have. `cant-fix`"
+            " if it is blocked on something outside this repository. Both stay in the tracker,"
+            " because you being unable to do a thing is not a decision that it should not be done."
+            " Only close — reason `not planned` — when the task should not be done by anybody at all,"
+            " and say why in a comment.",
             "",
             "Do not leave it unanswered. Work that is skipped silently is the thing this exists to"
             " prevent; work that is written down as outstanding is fine.",
