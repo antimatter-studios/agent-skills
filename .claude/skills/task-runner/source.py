@@ -287,7 +287,7 @@ class IssueTasks:
                 return
             ids[number] = json.loads(got.stdout)["id"]
         self._gh("api", "graphql",
-                 "-f", "query=mutation($i:ID!,$b:ID!){addBlockedBy(input:{issueId:$i,blockedByIssueId:$b}){clientMutationId}}",
+                 "-f", "query=mutation($i:ID!,$b:ID!){addBlockedBy(input:{issueId:$i,blockingIssueId:$b}){clientMutationId}}",
                  "-f", f"i={ids[task['id']]}", "-f", f"b={ids[on]}")
 
     def _adopt(self, parent, child):
