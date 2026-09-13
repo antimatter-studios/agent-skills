@@ -194,6 +194,21 @@ def main():
             "  - Not finished: add the remaining work as new tasks INSERTED DIRECTLY BELOW this one,"
             " so the next guard picks up the rest of this same job while it is still in your head."
             " Then mark this one done.",
+            "",
+            "  - EITHER WAY, file what the work turned up. A task that finished green still found"
+            " things, and they are gone the moment this turn ends: you are the only one who saw"
+            " them, and nobody reading the diff later will know they were ever noticed. Three kinds,"
+            " and they take three different shapes because they are three different facts:",
+            "      * REMAINDER — what is left of THIS job. A sub-issue of it, inserted below, as"
+            " above.",
+            "      * BLOCKER — a thing that has to happen before this can, found by trying. Its own"
+            " task, with this one recorded as blocked by it. Not a child: it is not part of this"
+            " job, it is in front of it.",
+            "      * HOLE — something wrong or missing NEXT DOOR, found while reading. Nothing to do"
+            " with this task and no relation to it. Its own task, on its own.",
+            "    A hole you mention in prose and do not file is a hole you found and threw away."
+            " Write down what you saw, where, and why it matters — enough that somebody who was not"
+            " here can pick it up cold.",
             "  - You tried and could not: that is `needs-respec`, and the label is the small part."
             " Comment with the ATTEMPT — what you actually did, what happened, where it stopped, and"
             " your best guess at what the task does not say. Do not rewrite the task yourself: you"
