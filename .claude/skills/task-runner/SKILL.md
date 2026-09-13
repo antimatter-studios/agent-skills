@@ -159,6 +159,26 @@ request that changes it, it diffs, and it runs without anybody downloading anyth
 So the same field carries `test -f done.txt` and a hundred lines of setup, teardown and assertions.
 Nothing about the mechanism changes; only the length of what it points at.
 
+Name it for the **issue** number, which is what the loop keys on. The worklist or design number, if
+there is one, lives in the issue title where a person reads it.
+
+### And take the scaffolding down again
+
+A check script outlives its task by nothing at all. The moment the issue closes the task-runner will
+never ask for it again, and what is left is a file that looks live, runs never, and rots against
+code that moved underneath it — which is the exact fault `chore reachable` exists to count. Starting
+a fresh pile of dead files in a new directory is no way to answer a report of forty-three of them.
+
+Two honest endings when a task goes green, and both end the same way:
+
+- **the property should stay true** — then it belongs in the test suite, where something runs it on
+  every build. Promote it, then delete the script.
+- **it was a one-off** — `! grep -q maybeNum`, `test -f report.md` — it has nothing left to say.
+  Delete it.
+
+Worth enforcing rather than remembering: a test that lists `checks/*.sh` against the open issues and
+fails on any script whose issue is closed. Then the scaffolding cannot quietly become furniture.
+
 ### Why issues, given a file is faster
 
 A `gh` call measures about half a second against roughly a millisecond for a file. That was the
