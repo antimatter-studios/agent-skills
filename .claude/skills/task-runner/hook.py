@@ -160,6 +160,10 @@ def main():
             "  - Not finished: add the remaining work as new tasks INSERTED DIRECTLY BELOW this one,"
             " so the next guard picks up the rest of this same job while it is still in your head."
             " Then mark this one done.",
+            "  - Cannot be done at all: say which of the two it is and act on it, rather than leaving"
+            " it to come round again. Decided against is a close with reason `not planned`. Blocked"
+            " on something outside the repository is the `cant-fix` label, which stays open and stops"
+            " being offered. Needs a person — a device, an eye, a judgement — is `needs-hands`.",
             "",
             "Do not leave it unanswered. Work that is skipped silently is the thing this exists to"
             " prevent; work that is written down as outstanding is fine.",

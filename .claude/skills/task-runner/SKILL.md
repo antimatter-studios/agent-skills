@@ -295,11 +295,40 @@ The hook is `hook.py` beside this file. Copy it somewhere stable and wire it as 
 The timeout has to exceed the slowest `check`, because the hook runs it. `TASK_CHECK_TIMEOUT`
 (default 900s) caps a single check.
 
+## Work that cannot be done
+
+A queue that hands back a known-impossible task every time it comes round is a queue somebody stops
+reading, so there are three ways to take one out of circulation and they mean different things.
+
+**Decided against** — close it, `--reason "not planned"`. GitHub has this natively: the issue leaves
+the open queue on its own, shows a distinct icon, and the loop needs to know nothing about it. This
+is the right route for anything genuinely abandoned, and a label would be a worse version of it.
+
+**Blocked on something outside the repository** — the `cant-fix` label. The work is real and closing
+it would lose it, so it stays open and visible and stops being offered. Take the label off when
+whatever it was waiting on arrives.
+
+**Needs a person** — `needs-hands`. A device, an eye, a judgement. The first task this queue ever
+offered was a phone layout whose remaining half was, in its own words, *"the part that wants a real
+thumb on real glass rather than an emulator"*, and nothing in the tracker could say so.
+
+And **waiting on another task** — `Blocked by #25` in the body, which is ordering rather than
+impossibility and resolves itself when #25 closes.
+
 ## Stopping it
 
 - An empty list ends the loop on its own: that is what done looks like.
 - `TASK_LOOP_MAX` (default 40) caps how many times it will bounce in one session, so a list nobody
-  meant to start cannot run all night.
+  meant to start cannot run all night — and raising it is how you make one that does. Set it on the
+  hook's own command line rather than in a profile, so it applies to this and to nothing else:
+
+      "command": "TASK_LOOP_MAX=500 python3 \"$HOME/.claude/skills/task-runner/hook.py\""
+
+  Worth knowing before turning it up: every bounce is a whole turn, so a long night is a real amount
+  of tokens; and the queue is the other limit — when it empties the loop stops whatever the cap says.
+  The thing you lose is the thing that has caught the most: on the night this was built, the worst
+  errors were found by the person asking a question mid-turn, and a loop running unattended for
+  hours has nobody to ask.
 - Ctrl-C always wins.
 - Depth-first can starve the list if a task keeps spawning children. The cap catches it; the
   discipline is that split-out tasks must be strictly smaller than the one they came from.
