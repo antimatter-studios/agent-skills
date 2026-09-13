@@ -101,34 +101,25 @@ class FileTasks:
 
     def tasks(self, after=None):
         out = [t for t in self._read().get("tasks", []) if not t.get("done")]
-        return out                            # position is the order; insert_after already placed it
+        # position is the order; insert_after already placed it. What a file cannot get from a
+        # relation it keeps in a field, and the hook asks the same question of both sources
+        still_open = {t.get("id") for t in out}
+        for t in out:
+            t["waiting_on"] = [n for n in t.get("blocked_by", []) if n in still_open]
+        return out
 
-    def say(self, task, what):
-        """Write what the check said into the issue, once per distinct thing it said.
+    def block(self, task, on):
+        """Record that this task waits on another, which is ordering rather than impossibility.
 
-        Chris, 2026-09-13: "I guess we should write the output of the verification step into the
-        issue comments?" — yes, and it is the part a person actually wants: not that a task failed
-        but *what* it said, readable without re-running anything, months later, by somebody who was
-        not there.
-
-        Once per distinct failure, though. A loop that bounces forty times against the same broken
-        test would post forty identical comments and turn the issue into a wall nobody reads, which
-        is the same way a warning that fires every run stops being a warning. The last thing said is
-        kept beside the run's own bookkeeping, and an identical one is simply not posted again.
+        A field rather than a sentence in the brief, for the same reason the GitHub source uses the
+        relation rather than a `Blocked by #25` line: a reword cannot silently unblock something,
+        and the thing that decides what to hand out next reads exactly what was written.
         """
-        seen = Path(".git/task-runner-said.json")
-        try:
-            already = json.loads(seen.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            already = {}
-        if already.get(str(task["id"])) == what:
-            return
-        already[str(task["id"])] = what
-        try:
-            seen.write_text(json.dumps(already, indent=2) + "\n", encoding="utf-8")
-        except OSError:
-            pass
-        self._gh("issue", "comment", str(task["id"]), "--body", what)
+        data = self._read()
+        for t in data.get("tasks", []):
+            if t.get("id") == task["id"] and on not in t.setdefault("blocked_by", []):
+                t["blocked_by"].append(on)
+        self._write(data)
 
     def mark_done(self, task, when, verified=True):
         data = self._read()
@@ -279,6 +270,25 @@ class IssueTasks:
         if not born:
             return
         self._adopt(task["id"], int(born.group(1)))
+
+    def block(self, task, on):
+        """Record that this task waits on another, with the relation GitHub already has.
+
+        The read side of this has been here since the day the mistake about it was corrected —
+        `blockedBy` is queried on every issue and a blocked task is not offered. The write side was
+        not, so the only way a blocker got recorded was a person adding it in the interface, or a
+        `Blocked by #25` line in the body that a reword could quietly undo. A relation the loop
+        obeys and cannot create is a relation that mostly does not exist.
+        """
+        ids = {}
+        for number in (task["id"], on):
+            got = self._gh("issue", "view", str(number), "--json", "id")
+            if got.returncode != 0:
+                return
+            ids[number] = json.loads(got.stdout)["id"]
+        self._gh("api", "graphql",
+                 "-f", "query=mutation($i:ID!,$b:ID!){addBlockedBy(input:{issueId:$i,blockedByIssueId:$b}){clientMutationId}}",
+                 "-f", f"i={ids[task['id']]}", "-f", f"b={ids[on]}")
 
     def _adopt(self, parent, child):
         """Make one issue the child of another, by node id, which is what the mutation wants."""
