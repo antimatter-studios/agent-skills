@@ -424,6 +424,35 @@ Every other status **hands the job back**, and then whatever is left in it has t
 is a reason that existed for one turn and is now gone. `did:` is required in all of them: one line
 on what actually happened, which is the only record of that turn which survives it.
 
+## The one check that is not a check on what you wrote
+
+Everything else in this file reads a sentence and asks whether the sentence is well formed. A turn
+spent writing a status summary answers all of them perfectly: the status is legal, the `did:` line
+is present, no issue number is invented. That is not a loophole in the checks — it is what the
+checks *are*, and it made the whole thing theatre.
+
+Chris, 13 September 2026: *"it has to be a mechanical constraint, otherwise it's useless... the
+whole point of building automation is that it automates. If you can just ignore it, what the fuck
+is the point?"*
+
+So before the report is read at all, the hook asks the **world**:
+
+- a commit since hand-out whose message names the issue
+- a pull request referencing it
+- the issue closed
+- the issue labelled with a state that stops it
+- a sub-issue of it
+
+Every one had to be *created*. None can be produced by writing a better paragraph. A turn that
+leaves none of them comes back with the same task and the sentence *"nothing exists that ties this
+turn to task N"* — which cannot be answered, only acted on.
+
+**It still cannot compel, and pretending otherwise would be the same fault again.** Exit 2
+re-invokes a turn; it does not hold a gun. What changes is that ignoring it is now *loud and
+recorded* instead of invisible — the whole of 13 September, every lapse was caught by a person
+reading replies, because nothing in the loop could see the difference between a turn of work and a
+turn of prose about work.
+
 **The flags are claims, not evidence.** What makes them worth having is that every one is checked
 against the tracker before the turn is allowed to end, and a turn that does not hold up is sent
 back:
