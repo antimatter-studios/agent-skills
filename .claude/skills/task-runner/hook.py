@@ -93,6 +93,35 @@ def passes(check):
     return False, "\n    ".join((ran.stderr or ran.stdout or "").strip().split("\n")[-3:])
 
 
+def comingRoundAgain(tries):
+    """What to say to a task that will not finish, which is not "try harder".
+
+    One pass unfinished is ordinary — a turn ran out. Two is a different fact about the task: it is
+    bigger or vaguer than a turn, and the same effort applied again gets the same result. So the
+    second pass stops asking whether it is done and starts asking what the smallest finishable piece
+    of it is.
+
+    It lives here rather than in either branch because both of them are the same moment. A task can
+    come round with a failing check or with no check at all, and the answer to "this keeps not
+    finishing" does not depend on which.
+    """
+    if tries < 2:
+        return []
+    return [
+        "",
+        f"**This is pass {tries} on this task.** Coming round again is the signal that it is bigger "
+        "or vaguer than one turn, not that it wants trying harder — the same effort will get the "
+        "same result. So do not simply attempt it again:",
+        "",
+        "  - **Break it up.** Name the smallest piece that can be finished and checked on its own, "
+        "add the rest as tasks below this one, and do that piece. Three small tasks that each finish "
+        "beat one that never does.",
+        "  - **Or say you cannot.** If it will not break up because it is not clear what is being "
+        "asked, that is `needs-respec`: comment with what you tried and where it stopped, and take "
+        "the next one. A person respecifies it from your account.",
+    ]
+
+
 def say(lines):
     print("task-runner: " + "\n".join(lines), file=sys.stderr)
     sys.exit(2)
@@ -129,6 +158,11 @@ def main():
     # contradicting the answer a turn later is a worse conversation than asking a question that
     # already knows: a failing check turns "is it done?" into "it is not done, what is left?", which
     # is the question actually worth asking.
+    # how many times this one has come round unfinished. One is ordinary; two says the task is
+    # bigger or vaguer than a turn, which is the moment to break it up rather than try harder
+    if held is not None:
+        run(held)["attempts"] = run(held).get("attempts", 0) + 1
+
     if held is not None and not run(held).get("asked"):
         check = held.get("check")
         verdict, why = (passes(check) if check else (None, ""))
@@ -152,7 +186,7 @@ def main():
             "",
             f"    {held['what']}",
             "",
-        ] + evidence + [
+        ] + evidence + comingRoundAgain(run(held).get("attempts", 1)) + [
             "",
             "Answer in the file, not in prose.",
             "",
@@ -191,7 +225,7 @@ def main():
                     "",
                     "Either finish it, or split what is left into tasks below this one and say which"
                     " part is blocked and on what.",
-                ])
+                ] + comingRoundAgain(run(held).get("attempts", 1)))
         else:
             # no check: the model's word, and the store says so where a reader will see it
             store.mark_done(held, now(), verified=False)
