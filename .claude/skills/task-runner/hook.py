@@ -186,8 +186,16 @@ def main():
             # no check: the model's word, and the store says so where a reader will see it
             store.mark_done(held, now(), verified=False)
 
-    following = next((t for t in store.tasks(after=held["id"] if held else None)
-                      if not run(t).get("handed") or t is held), None)
+    waiting = store.tasks(after=held["id"] if held else None)
+    workable = [t for t in waiting if not t.get("waiting_on")]
+    following = next((t for t in workable if not run(t).get("handed") or t is held), None)
+    if following is None and waiting:
+        # everything left is waiting on something that is itself still open, which is a fact worth
+        # saying rather than a silent stop: it means the queue is ordered wrongly or a blocker is stuck
+        blocked = ", ".join(f"#{t['id']} waits on {t['waiting_on']}" for t in waiting[:5])
+        print(f"task-runner: nothing workable — every remaining task is blocked ({blocked}).",
+              file=sys.stderr)
+        sys.exit(0)
     if following is None:
         STATE.unlink(missing_ok=True)
         sys.exit(0)                                  # the list is empty: this is what done looks like

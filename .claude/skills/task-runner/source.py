@@ -37,6 +37,17 @@ import sys
 from pathlib import Path
 
 CHECK_IN_BODY = re.compile(r"<!--\s*check:\s*(.+?)\s*-->", re.S)
+# "must happen after", which GitHub has no native relation for.
+#
+# Sub-issues are containment — *part of* — and that is a different thing from *before*. Item 89 here
+# unblocks 90, 91 and half of 82, and none of those is part of 89; they merely cannot start until it
+# is done. Making them children would misdescribe the work in the tracker to make the loop easier,
+# which is the wrong way round. So a line anybody would write anyway, read by the loop:
+#
+#     Blocked by #25
+#
+# A task whose blocker is still open is skipped rather than handed out, and said so in the report.
+BLOCKED_BY = re.compile(r"[Bb]locked by #(\d+)")
 LABEL = os.environ.get("TASK_LABEL", "task-runner")
 # a check that was seen to fail when the task was written is a different object from one that was
 # not, and a label is the only thing on an issue that is visible at a glance and queryable
@@ -64,6 +75,33 @@ class FileTasks:
         out = [t for t in self._read().get("tasks", []) if not t.get("done")]
         return out                            # position is the order; insert_after already placed it
 
+    def say(self, task, what):
+        """Write what the check said into the issue, once per distinct thing it said.
+
+        Chris, 2026-09-13: "I guess we should write the output of the verification step into the
+        issue comments?" — yes, and it is the part a person actually wants: not that a task failed
+        but *what* it said, readable without re-running anything, months later, by somebody who was
+        not there.
+
+        Once per distinct failure, though. A loop that bounces forty times against the same broken
+        test would post forty identical comments and turn the issue into a wall nobody reads, which
+        is the same way a warning that fires every run stops being a warning. The last thing said is
+        kept beside the run's own bookkeeping, and an identical one is simply not posted again.
+        """
+        seen = Path(".git/task-runner-said.json")
+        try:
+            already = json.loads(seen.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            already = {}
+        if already.get(str(task["id"])) == what:
+            return
+        already[str(task["id"])] = what
+        try:
+            seen.write_text(json.dumps(already, indent=2) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+        self._gh("issue", "comment", str(task["id"]), "--body", what)
+
     def mark_done(self, task, when, verified=True):
         data = self._read()
         for t in data.get("tasks", []):
@@ -72,6 +110,10 @@ class FileTasks:
                 if not verified:
                     t["unverified"] = True
         self._write(data)
+
+    def say(self, task, what):
+        """A file has nowhere to put a comment, and inventing a log beside it would be a second
+        record of the same run that nothing reads. The hook prints it either way."""
 
     def insert_after(self, task, what, check=None):
         data = self._read()
@@ -134,11 +176,43 @@ class IssueTasks:
                 "by": (issue.get("author") or {}).get("login", "?"),
                 "was_red": any(l["name"] == RED_LABEL for l in issue.get("labels", [])),
                 "parent": (issue.get("parent") or {}).get("number"),
+                "blocked_by": [int(n) for n in BLOCKED_BY.findall(body)],
                 "done": None,
             })
+        # anything still waiting on an open task is not workable yet, so it is not offered
+        open_now = {t["id"] for t in out}
+        for t in out:
+            t["waiting_on"] = [n for n in t["blocked_by"] if n in open_now]
         if after is not None:
             out.sort(key=lambda t: (t.get("parent") != after, t["id"]))
         return out
+
+    def say(self, task, what):
+        """Write what the check said into the issue, once per distinct thing it said.
+
+        Chris, 2026-09-13: "I guess we should write the output of the verification step into the
+        issue comments?" — yes, and it is the part a person actually wants: not that a task failed
+        but *what* it said, readable without re-running anything, months later, by somebody who was
+        not there.
+
+        Once per distinct failure, though. A loop that bounces forty times against the same broken
+        test would post forty identical comments and turn the issue into a wall nobody reads, which
+        is the same way a warning that fires every run stops being a warning. The last thing said is
+        kept beside the run's own bookkeeping, and an identical one is simply not posted again.
+        """
+        seen = Path(".git/task-runner-said.json")
+        try:
+            already = json.loads(seen.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            already = {}
+        if already.get(str(task["id"])) == what:
+            return
+        already[str(task["id"])] = what
+        try:
+            seen.write_text(json.dumps(already, indent=2) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+        self._gh("issue", "comment", str(task["id"]), "--body", what)
 
     def mark_done(self, task, when, verified=True):
         """Closing it is done. The comment says on what evidence, because that is the part a reader
