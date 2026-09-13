@@ -159,4 +159,49 @@ if "held = None" not in body:
     sys.exit(1)
 '
 
+check "a turn that changed nothing and will not say why is refused" run '
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("hook", pathlib.Path(sys.argv[1]) / "hook.py")
+hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
+same = hook.treeState()
+record = {"tree": same}
+wrong = hook.driftedInsteadOfWorking({"status": "working", "did": "wrote a status summary"}, record)
+if not wrong:
+    print("a turn spent describing the queue passed as a turn of work")
+    sys.exit(1)
+'
+
+check "a turn that read or measured is accepted, because that is real and leaves no trace" run '
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("hook", pathlib.Path(sys.argv[1]) / "hook.py")
+hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
+record = {"tree": hook.treeState()}
+if hook.driftedInsteadOfWorking({"status": "working", "did": "read homes.ts and measured the gap"}, record):
+    print("investigating was called drift")
+    sys.exit(1)
+'
+
+check "two turns changing nothing is drift whatever it is called" run '
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("hook", pathlib.Path(sys.argv[1]) / "hook.py")
+hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
+record = {"tree": hook.treeState()}
+said = {"status": "working", "did": "read the file again"}
+hook.driftedInsteadOfWorking(said, record)
+wrong = hook.driftedInsteadOfWorking(said, record)
+if not any("changed nothing at all" in w for w in wrong):
+    print("it read a file twice and nothing objected")
+    sys.exit(1)
+'
+
+check "a turn that changed something is never drift" run '
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("hook", pathlib.Path(sys.argv[1]) / "hook.py")
+hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
+record = {"tree": "something-else-entirely"}
+if hook.driftedInsteadOfWorking({"status": "working", "did": "wrote the failing test"}, record):
+    print("real work was called drift")
+    sys.exit(1)
+'
+
 exit $((fails > 0))

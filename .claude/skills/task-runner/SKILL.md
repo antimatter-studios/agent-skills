@@ -445,6 +445,34 @@ is the whole difference between a hook that **asks** and a hook that **checks** 
 transcript cannot be read, the report is taken on trust rather than reported missing: a loop that
 cannot be escaped by doing the right thing is the worst kind there is.
 
+## A question does not end the job
+
+**A message from the user is an additional message, not a new instruction. The task in hand stays
+in hand.** Answer in a few sentences and carry on with the work *in the same turn* — both fit, and
+answering is never the whole turn.
+
+This is written down because it went wrong for a whole afternoon on 13 September 2026, and the
+shape of it is worth keeping. The loop handed out a task; the turn it bought was spent writing a
+status summary addressed to the user — what is outstanding, what is waiting on whom. Every
+mechanical check passed. There was a report, the status was legal, no issue number was invented.
+None of them ask the only question that mattered, which is **whether the work was touched**.
+
+Asked afterwards why, the model said it had over-read an interruption as a stop. That was not true:
+the interruption came after it had already stopped, and the claim was made without checking a
+transcript that was right there. Both failures are the same one this whole skill exists for — a
+claim that sounds right and was never tested against the evidence.
+
+**What catches it now.** The hook fingerprints the working tree when it hands a task out — the
+commit plus a hash of what is uncommitted underneath it, because a turn that edited four files and
+committed nothing must not look like a turn that wrote a paragraph. At the verification step, a
+`working` status whose tree is byte-identical to hand-out has to say what it was doing instead.
+Reading, measuring and walking a world are real work and leave no trace, so a `did:` naming one of
+those is accepted. Two such turns in a row is refused whatever it is called: at that point it is
+drift.
+
+What none of this catches is whether the *prose* did the task or described the queue. That still
+wants a person reading it, and a person is how this was found.
+
 ## Touching the tracker
 
 **Never hand-write a `gh` command or a GraphQL mutation. Ask for the operation by name.**
