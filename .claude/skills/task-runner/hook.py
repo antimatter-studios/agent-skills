@@ -41,7 +41,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-LIST = Path(os.environ.get("TASK_LIST", ".task-list.json"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from source import source                                            # noqa: E402
+
 MAX_BOUNCES = int(os.environ.get("TASK_LOOP_MAX", "40"))
 CHECK_TIMEOUT = int(os.environ.get("TASK_CHECK_TIMEOUT", "900"))
 
@@ -103,14 +105,11 @@ def main():
         sys.exit(0)
     if event.get("stop_hook_active"):
         sys.exit(0)
-    if not LIST.exists():
-        sys.exit(0)
-    try:
-        data = json.loads(LIST.read_text(encoding="utf-8"))
-    except ValueError:
-        sys.exit(0)
-
-    tasks = data.get("tasks", [])
+    store = source()
+    tasks = store.tasks()
+    if not tasks:
+        STATE.unlink(missing_ok=True)
+        sys.exit(0)                          # nothing waiting: this is what done looks like
     state = bookkeeping()
     runs = state.setdefault("runs", {})
     bounces = state.get("bounces", 0)
@@ -122,7 +121,7 @@ def main():
     def run(task):
         return runs.setdefault(str(task["id"]), {})
 
-    held = next((t for t in tasks if run(t).get("handed") and not t.get("done")), None)
+    held = next((t for t in tasks if run(t).get("handed")), None)
 
     # ---- guard one: the task in hand has to be answered for before anything advances ----
     #
@@ -148,7 +147,8 @@ def main():
                         " which it is."]
 
         say([
-            f"Task {held['id']} is in hand and this turn is over. Before anything else moves:",
+            f"Task {held['id']} ({store.label}) is in hand and this turn is over. "
+            "Before anything else moves:",
             "",
             f"    {held['what']}",
             "",
@@ -171,7 +171,7 @@ def main():
         if check:
             ok, why = passes(check)
             if ok:
-                held["done"] = now()
+                store.mark_done(held, now())
             else:
                 state["bounces"] = bounces + 1
                 keep(state)
@@ -182,13 +182,11 @@ def main():
                     "Either finish it, or split what is left into tasks below this one and say which"
                     " part is blocked and on what.",
                 ])
-        elif not held.get("done"):
-            held["done"] = now()
-            held["unverified"] = True
+        else:
+            store.mark_done(held, now())      # no check: the model's word, and the file says so
 
-    following = next((t for t in tasks if not t.get("done")), None)
+    following = next((t for t in store.tasks() if not run(t).get("handed") or t is held), None)
     if following is None:
-        LIST.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         STATE.unlink(missing_ok=True)
         sys.exit(0)                                  # the list is empty: this is what done looks like
 
@@ -197,9 +195,8 @@ def main():
     run(following)["at"] = head()
     state["bounces"] = bounces + 1
     keep(state)
-    LIST.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
-    left = sum(1 for t in tasks if not t.get("done"))
+    left = len(store.tasks())
     lines = [f"Next task ({following['id']}), {left} outstanding:", "", f"    {following['what']}"]
     if following.get("check"):
         lines += ["", f"Done when this passes: {following['check']}"]

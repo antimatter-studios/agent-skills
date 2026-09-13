@@ -92,6 +92,47 @@ work was **inserted directly below** the task it came from, so the next thing ha
 of the same job while it is still in mind. Appending would bring it back ninety tasks later with all
 the context gone. A stack, not a queue.
 
+## Where the work is kept
+
+**GitHub issues, wherever they can be reached.** Open issues labelled `task-runner` are the queue,
+in number order; closing one is done; remainder work is opened as a new issue cross-referenced to
+its parent. Issues have no custom fields — only Projects v2 does — so a check travels in the body as
+an HTML comment, invisible when rendered and trivial to parse:
+
+    <!-- check: pnpm exec vitest run src/world/purses.test.ts -->
+
+**A JSON file when they cannot be.** No `gh`, not logged in, no network, or a repository with no
+remote at all: `.task-list.json` in the root, with a `_description` at the top so anybody who finds
+it knows what it is. Commit it. The loop keeps working on a train; it just keeps working somewhere
+only that train can see.
+
+`TASK_SOURCE=file` or `TASK_SOURCE=github` forces either, which is worth doing on a shared machine —
+forcing `github` makes a misconfigured box fail loudly rather than quietly writing a private list.
+
+Either way, the **run's own bookkeeping** lives in `.git/task-runner.json`: which task was handed
+out, when it was asked about, what HEAD was at the time, how many times the loop has bounced. It
+changes every turn and belongs to the machine doing the run. Under `.git/`, so it needs no
+`.gitignore` entry and is removed when the queue empties.
+
+### Why issues, given a file is faster
+
+A `gh` call measures about half a second against roughly a millisecond for a file. That was the
+first argument for the file and it does not survive the actual trade-off — Chris, 13 September 2026:
+
+> *"I think perhaps it's better to use github issues and be a tiny bit slower, than it is to create
+> an opaque task list that only exists on my computer and can't be shared and gives me no public
+> information about things that are filed for the project as tasks and stores them for free whilst
+> also allowing others to add their own ideas."*
+
+Half a second is nothing beside a turn that takes minutes, and nobody pays for the wait. A queue
+only one machine can see is a cost paid every day. So the fast thing is the fallback and the
+shareable thing is the default.
+
+**And it answers the obvious objection to this whole skill** — that it is GitHub Issues with extra
+steps. Mostly it was. What is not duplicated is the file; it is the **Stop hook**, the mechanical
+refusal to end a turn while work is outstanding. The store is an implementation detail of that,
+which is why there are two of them and the loop cannot tell them apart.
+
 ## Adding tasks
 
     add.py "what has to be true when this is done"
@@ -168,7 +209,13 @@ doing the same job the check would, addressed to a person instead of a shell.
 passes" is not evidence a refactor made anything clearer. A proxy check is the failure this whole
 mechanism exists to prevent, wearing the costume of the fix.
 
-## Installing it
+## Installing it once, not per project
+
+There is nothing to install into a project. The skill and its hook live at user level and the
+**store resolves from wherever you are** — run in a repo with a remote and it is that repo's issues,
+run in one without and it is that directory's file. Nothing to remember, nothing to copy in.
+
+### Wiring the hook
 
 The hook is `hook.py` beside this file. Copy it somewhere stable and wire it as a **Stop** hook:
 
