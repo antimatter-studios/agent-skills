@@ -525,6 +525,26 @@ drift.
 What none of this catches is whether the *prose* did the task or described the queue. That still
 wants a person reading it, and a person is how this was found.
 
+## Is the tracker readable? `shape.py`
+
+    shape.py        prints what is wrong and nothing else
+
+Three things go wrong silently, and all three were found by a person reading issues rather than by
+anything in this skill:
+
+- **A parent whose body does not name its children.** The sub-issue relation is real and lives in a
+  panel. A reader of the *text* sees "three smaller things the walk turned up, none fixed" and no
+  way to reach them. That is not a broken link, it is an invisible one — and eight parents were in
+  that state before anybody looked.
+- **A dependency written in prose with no relation behind it.** `Blocked by #25` in a body sorts
+  nothing and stops nothing. The relation is what takes a task out of the workable queue; the
+  sentence is what a reword can quietly undo.
+- **A remainder filed as a blocker, or the reverse.** Containment and ordering are different claims,
+  and a parent recorded as blocked by its own child can never be worked at all.
+
+It does not check whether the issues are any good. It checks that what one part of GitHub knows, the
+other parts and a human reader know too.
+
 ## Touching the tracker
 
 **Never hand-write a `gh` command or a GraphQL mutation. Ask for the operation by name.**
