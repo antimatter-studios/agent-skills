@@ -560,7 +560,7 @@ class IssueTasks:
             if got.returncode != 0:
                 return
             ids[number] = json.loads(got.stdout)["id"]
-        self._gh(
+        done = self._gh(
             "api",
             "graphql",
             "-f",
@@ -570,6 +570,22 @@ class IssueTasks:
             "-f",
             f"b={ids[on]}",
         )
+        # Say so when it did not work.
+        #
+        # This returned quietly on failure and the caller printed "#25 waits on #27" regardless, so
+        # a relation GitHub had refused as a CYCLE was reported as set, and the tracker was wrong in
+        # a way only a separate check noticed. Reporting success without looking is the one fault
+        # this whole runner exists to make impossible, and it was doing it.
+        if done.returncode != 0:
+            # "already been taken" is the relation being there already, which is the state the
+            # caller asked for. Everything else is a refusal and has to be said out loud.
+            #
+            # The order of these two tests is the whole of it: GitHub refuses a cycle with "would
+            # create a cycle where the target is ALREADY blocked by the source", so a check for
+            # "already" alone swallows the one error that matters most — and did, for one commit.
+            why = done.stderr.strip()
+            if "cycle" in why.lower() or "already been taken" not in why.lower():
+                raise RuntimeError(why or "the relation was refused")
 
     def said(self, task):
         """Everything written on this task since, oldest first.
@@ -616,7 +632,7 @@ class IssueTasks:
             if got.returncode != 0:
                 return
             ids[number] = json.loads(got.stdout)["id"]
-        self._gh(
+        done = self._gh(
             "api",
             "graphql",
             "-f",
@@ -626,6 +642,22 @@ class IssueTasks:
             "-f",
             f"b={ids[on]}",
         )
+        # Say so when it did not work.
+        #
+        # This returned quietly on failure and the caller printed "#25 waits on #27" regardless, so
+        # a relation GitHub had refused as a CYCLE was reported as set, and the tracker was wrong in
+        # a way only a separate check noticed. Reporting success without looking is the one fault
+        # this whole runner exists to make impossible, and it was doing it.
+        if done.returncode != 0:
+            # "already been taken" is the relation being there already, which is the state the
+            # caller asked for. Everything else is a refusal and has to be said out loud.
+            #
+            # The order of these two tests is the whole of it: GitHub refuses a cycle with "would
+            # create a cycle where the target is ALREADY blocked by the source", so a check for
+            # "already" alone swallows the one error that matters most — and did, for one commit.
+            why = done.stderr.strip()
+            if "cycle" in why.lower() or "already been taken" not in why.lower():
+                raise RuntimeError(why or "the relation was refused")
 
     def _adopt(self, parent, child):
         """Make one issue the child of another, by node id, which is what the mutation wants."""

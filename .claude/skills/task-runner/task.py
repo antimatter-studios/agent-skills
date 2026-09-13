@@ -89,7 +89,11 @@ def main():
         return 0
 
     if what == "block":
-        store.block({"id": int(rest[0])}, int(rest[1]))
+        try:
+            store.block({"id": int(rest[0])}, int(rest[1]))
+        except RuntimeError as refused:
+            print(f"#{rest[0]} does NOT wait on #{rest[1]}: {refused}", file=sys.stderr)
+            return 1
         print(f"#{rest[0]} waits on #{rest[1]}")
         return 0
 
