@@ -43,7 +43,32 @@ What caught them:
 - **the person**, playtesting, asking questions, and rejecting two designs outright
 
 A test that has never been seen to fail is a test with no evidence behind it. Prefer the kinds of
-check that have a record of going red.
+check that have a record of going red — and the tool enforces that at the point a task is written:
+`add.py` **runs the check and refuses it if it already passes**. A check that is green before the
+work is a claim wearing the costume of a test, and that is a fact a machine can settle in a second
+rather than a matter of good faith.
+
+## Where the findings actually come from
+
+Chris again, on the same night: *"we're basically catching mistakes by play testing it and adding
+things that failed to the pile of tasks to complete. That's a sort of verification, but not a strong
+one."*
+
+It is the best **discovery** mechanism there is and the worst **guarantee**. It exercises real
+combinations nobody enumerated; absence of a finding proves nothing; and a bug found once will come
+back and have to be walked into again.
+
+What upgrades it is the conversion: **a playtest finding becomes a red test before it is fixed.**
+The discovery is weak, the conversion is permanent. Three faults found by walking the game that
+night can no longer come back silently, because each one left a test behind that had been seen to
+fail.
+
+And there is a category playtesting structurally cannot reach. Nobody notices that no mountain has a
+radius by playing, because the eagles simply are not there — nothing looks wrong, there is no crag
+to miss. Nobody notices an injury that never happens. Those are found by *counting*, not walking.
+
+Three jobs, none of them a substitute for the others: playtesting finds combinations, a red test
+locks one finding down for ever, and a bench or a sweep finds the things that are absent.
 
 ## The two guards
 
