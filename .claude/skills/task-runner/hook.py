@@ -34,6 +34,7 @@ hard. It does not make the work good, and nothing here should be read as though
 it did.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -73,6 +74,22 @@ def keep(state):
 
 def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def treeState():
+    """A fingerprint of the working tree, so "nothing happened" is a fact rather than an impression.
+
+    HEAD alone is not enough: a turn that edited four files and committed nothing would look
+    identical to a turn that wrote a paragraph. What is wanted is *did anything change*, and the
+    cheapest honest answer is the commit plus what is uncommitted underneath it.
+    """
+    try:
+        dirt = subprocess.run(
+            ["git", "status", "--porcelain"], capture_output=True, text=True, check=True
+        ).stdout
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    return f"{head()}:{hashlib.sha1(dirt.encode()).hexdigest()[:12]}"
 
 
 def head():
@@ -202,6 +219,65 @@ def reportShape(ident):
 def numbersIn(value):
     """The issue numbers a report line claims, which may be none and may be a lie."""
     return [int(n) for n in re.findall(r"#(\d+)", value or "")]
+
+
+# Words that name a turn which legitimately produced nothing. Reading a file, measuring a thing and
+# walking a world all change no bytes and are all real work; a turn that did one of them says so.
+PRODUCED_NOTHING = (
+    "read",
+    "measur",
+    "investigat",
+    "walk",
+    "search",
+    "look",
+    "traced",
+    "profil",
+    "review",
+    "audit",
+    "ran ",
+    "checked",
+    "answered",
+    "waited",
+)
+
+
+def driftedInsteadOfWorking(said, record):
+    """Did this turn touch the work at all, and if not, did it say why?
+
+    The hole this closes is the one a person found by hand: the loop handed out a task and the turn
+    it bought was spent writing a status summary. Every mechanical check passed — there was a
+    report, the status was legal, no issue number was invented — because none of them ask the only
+    question that mattered, which is whether the work was touched.
+
+    A turn that changes nothing is not automatically wrong. Reading, measuring and walking a world
+    are real and leave no trace, so a `did:` that names one of those is accepted. What is refused is
+    a turn that changed nothing and does not say what it was doing instead, and — separately, and
+    more firmly — two of those in a row, because at that point it is drift whatever it is called.
+    """
+    if not said:
+        return []
+    status = (said.get("status") or "").strip().lower()
+    if status != STILL_GOING:
+        return []  # handing it back is accounted for elsewhere
+    now_tree = treeState()
+    if now_tree is None or record.get("tree") is None or now_tree != record.get("tree"):
+        record["still"] = 0
+        return []
+    record["still"] = record.get("still", 0) + 1
+    did = (said.get("did") or "").strip().lower()
+    if record["still"] >= 2:
+        return [
+            f"this is turn {record['still']} on this task that has changed nothing at all."
+            " Say what is stopping it and hand it back with a label, or do the work — carrying"
+            " on is what it looked like the last two times as well."
+        ]
+    if not any(word in did for word in PRODUCED_NOTHING):
+        return [
+            "nothing in the repository changed this turn and `did:` does not say what you were"
+            " doing instead. Reading, measuring and walking a world are real work and leave no"
+            " trace — say so. Writing about the queue is not work on the task."
+        ]
+    return []
 
 
 def brokenPromises(said, store, held):
@@ -418,6 +494,7 @@ def main():
                 + reportShape(held["id"])
             )
         wrong = brokenPromises(said, store, held) if said else []
+        wrong += driftedInsteadOfWorking(said, run(held))
         if wrong:
             keep(state)
             say(
@@ -469,6 +546,7 @@ def main():
     # ---- guard two: hand over the first unfinished task ----
     run(following)["handed"] = now()
     run(following)["at"] = head()
+    run(following)["tree"] = treeState()
     state["bounces"] = bounces + 1
     keep(state)
 
