@@ -108,6 +108,14 @@ class FileTasks:
             t["waiting_on"] = [n for n in t.get("blocked_by", []) if n in still_open]
         return out
 
+    def exists(self, number):
+        """Is there such a task at all? Asked of the store, so a claimed number can be checked."""
+        return any(t.get("id") == number for t in self._read().get("tasks", []))
+
+    def isChildOf(self, number, parent):
+        """A file has no relations; position is the order, so a remainder below its job is a child."""
+        return True
+
     def add(self, what, check=None, labels=()):
         """A task with no parent: something found next door that belongs to nobody's job."""
         data = self._read()
@@ -179,6 +187,12 @@ class FileTasks:
             "what": what, "by": "model", "check": check, "done": None,
         })
         self._write(data)
+
+
+# What a task has to say before it counts as written down. Short, because the bar is "somebody who
+# was not here can pick this up" and not "somebody wrote an essay" — but a title with nothing under
+# it is a reminder, not a brief, and the loop would hand it out as though it were one.
+ENOUGH_TO_PICK_UP = 80
 
 
 class IssueTasks:
@@ -333,6 +347,37 @@ class IssueTasks:
         if not born:
             return
         self._adopt(task["id"], int(born.group(1)))
+
+    def exists(self, number):
+        """Is there such an issue at all?
+
+        The point of the report is that its flags are CLAIMS, and a claim nobody checks is worth
+        exactly what an instruction nobody checks is worth — which this runner has already learned
+        once. Open or closed both count: a task filed and immediately finished is still a task that
+        was filed.
+        """
+        got = self._gh("issue", "view", str(number), "--json", "number,title,body")
+        if got.returncode != 0:
+            return False
+        issue = json.loads(got.stdout or "{}")
+        # and not empty, which is the other half of the claim. A task filed as a title and nothing
+        # else satisfies "an issue exists" and is useless to whoever picks it up months later with
+        # none of the context that made it obvious — so it does not count as having been filed
+        return len((issue.get("body") or "").strip()) >= ENOUGH_TO_PICK_UP
+
+    def isChildOf(self, number, parent):
+        """Is this issue actually a sub-issue of that one, as GitHub records it?
+
+        Asked of the relation rather than of the report, because the report is the claim. A
+        remainder that is not a child is the rest of a job floating free of the job — it sorts by
+        number instead of coming next, so the context it was split out of is gone by the time
+        anybody reaches it.
+        """
+        got = self._gh("issue", "view", str(number), "--json", "parent")
+        if got.returncode != 0:
+            return False
+        held = (json.loads(got.stdout or "{}").get("parent") or {}).get("number")
+        return held == parent
 
     def add(self, what, check=None, labels=()):
         """A task with no parent: a hole found next door, which belongs to nobody's job.

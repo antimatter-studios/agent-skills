@@ -35,6 +35,7 @@ it did.
 """
 
 import json
+import re
 import os
 import subprocess
 import sys
@@ -125,6 +126,78 @@ def comingRoundAgain(tries):
 def say(lines):
     print("task-runner: " + "\n".join(lines), file=sys.stderr)
     sys.exit(2)
+
+
+# --- the contract the model has to answer in, and the check that does not trust it ---
+
+REPORT = re.compile(
+    r"<task-runner-report[^>]*>(.*?)</task-runner-report>", re.S | re.I)
+FIELD = re.compile(r"^\s*(finished|remainder|blockers|holes)\s*:\s*(.+?)\s*$", re.I | re.M)
+
+
+def whatTheModelSaid(event):
+    """The report block out of the last thing the model wrote, or nothing.
+
+    Chris, 13 September 2026: *"perhaps we need claude to output in its verification text a simple
+    set of flags that we can mechanically search for... if we get the impression issues should have
+    been created, but none were, we know that claude has failed to complete the contract."*
+
+    The Stop event carries the path to the transcript, so the turn's own words are readable from
+    here. That is the difference between a hook that ASKS and a hook that CHECKS — everything this
+    file did before now was an instruction the model could simply not follow, and nothing would know.
+    """
+    path = event.get("transcript_path")
+    if not path or not Path(path).exists():
+        # no transcript to read is NOT a missing report. Complaining here would accuse the model of
+        # omitting something it did write, every turn, for ever — a loop that cannot be got out of
+        # by doing the right thing, which is the worst kind there is
+        return "unreadable"
+    last = ""
+    for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if row.get("type") != "assistant":
+            continue
+        for part in (row.get("message") or {}).get("content") or []:
+            if isinstance(part, dict) and part.get("type") == "text":
+                last = part.get("text", "") or last
+    found = REPORT.search(last)
+    if not found:
+        return None
+    said = {k.lower(): v for k, v in FIELD.findall(found.group(1))}
+    return said or None
+
+
+def numbersIn(value):
+    """The issue numbers a report line claims, which may be none and may be a lie."""
+    return [int(n) for n in re.findall(r"#(\d+)", value or "")]
+
+
+def brokenPromises(said, store, held):
+    """What the report claims against what the tracker actually holds.
+
+    The flag is not the evidence — it is the claim. An unfinished task that filed nothing is the
+    case this exists to catch, and a number that was written down but never created is the case it
+    catches by accident and is worth catching twice as much.
+    """
+    wrong = []
+    finished = (said.get("finished") or "").strip().lower() in ("yes", "true", "done")
+    filed = sum(len(numbersIn(said.get(k))) for k in ("remainder", "blockers", "holes"))
+    if not finished and filed == 0:
+        wrong.append("you say it is not finished and filed nothing. What is left has to become a"
+                     " task or it is work that has been silently skipped.")
+    for kind in ("remainder", "blockers", "holes"):
+        for number in numbersIn(said.get(kind)):
+            if not store.exists(number):
+                wrong.append(f"the report names #{number} as a {kind} and no such task exists.")
+            elif kind == "remainder" and not store.isChildOf(number, held["id"]):
+                # the mistake that was made four times in one afternoon: a remainder filed with
+                # `add` rather than `split`, so the rest of a job floats free of the job
+                wrong.append(f"#{number} is called the remainder of #{held['id']} and is not a"
+                             f" sub-issue of it. Use `task.py split {held['id']}`, not `add`.")
+    return wrong
 
 
 def main():
@@ -222,7 +295,44 @@ def main():
             "",
             "Do not leave it unanswered. Work that is skipped silently is the thing this exists to"
             " prevent; work that is written down as outstanding is fine.",
+            "",
+            "AND END YOUR REPLY WITH THIS BLOCK, exactly, filled in. It is read mechanically and"
+            " checked against the tracker — a number you name here that does not exist is caught,"
+            " and so is saying the job is unfinished while filing nothing:",
+            "",
+            f"    <task-runner-report task=\"{held['id']}\">",
+            "    finished: yes|no",
+            "    remainder: #<id> ... | none",
+            "    blockers: #<id> ... | none",
+            "    holes: #<id> ... | none",
+            "    </task-runner-report>",
         ])
+
+    # ---- did the model answer in the shape it was asked to? ----
+    if held is not None and run(held).get("asked"):
+        said = whatTheModelSaid(event)
+        if said == "unreadable":
+            said = None                      # cannot check this turn; fall through and take the word
+        elif said is None:
+            keep(state)
+            say([
+                f"Task {held['id']} was asked for and the report block is missing.",
+                "",
+                "It is read mechanically, so it has to be there and it has to be the last thing in"
+                " your reply. Answer the question above, then end with:",
+                "",
+                f"    <task-runner-report task=\"{held['id']}\">",
+                "    finished: yes|no",
+                "    remainder: #<id> ... | none",
+                "    blockers: #<id> ... | none",
+                "    holes: #<id> ... | none",
+                "    </task-runner-report>",
+            ])
+        wrong = brokenPromises(said, store, held) if said else []
+        if wrong:
+            keep(state)
+            say([f"Task {held['id']}: the report does not hold up."] + [f"  - {w}" for w in wrong]
+                + ["", "File what is missing, then report again."])
 
     # ---- the task in hand has been answered for: settle it ----
     if held is not None:
@@ -283,4 +393,8 @@ def main():
     say(lines)
 
 
-main()
+# importable, so the contract above can be tested without a Stop event to feed it. This file ran
+# `main()` at import and a test that merely loaded it hung on stdin for ever — the same fault
+# `release.ts` had this morning, found the same way and worth writing down twice.
+if __name__ == "__main__":
+    main()
