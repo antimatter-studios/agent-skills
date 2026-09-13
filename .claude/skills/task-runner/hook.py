@@ -132,7 +132,14 @@ def say(lines):
 
 REPORT = re.compile(
     r"<task-runner-report[^>]*>(.*?)</task-runner-report>", re.S | re.I)
-FIELD = re.compile(r"^\s*(finished|remainder|blockers|holes)\s*:\s*(.+?)\s*$", re.I | re.M)
+FIELD = re.compile(r"^\s*(status|did|filed|finished|remainder|blockers|holes)\s*:\s*(.+?)\s*$",
+                   re.I | re.M)
+
+# What a turn can end in. `working` is the one that files nothing and is not a failure: the task is
+# still in hand and the loop will bring it straight back. Everything else is HANDING IT BACK, and
+# handing back a job with work left in it that nobody wrote down is the thing this exists to stop.
+STILL_GOING = "working"
+HANDING_BACK = ("finished", "blocked", "needs-feedback", "needs-hands", "needs-respec")
 
 
 def whatTheModelSaid(event):
@@ -170,6 +177,23 @@ def whatTheModelSaid(event):
     return said or None
 
 
+def reportShape(ident):
+    """The block, written once, so the two places that ask for it cannot drift apart."""
+    return [
+        f"    <task-runner-report task=\"{ident}\">",
+        f"    status: {STILL_GOING}|{'|'.join(HANDING_BACK)}",
+        "    did: <one line on what actually happened this turn>",
+        "    filed: #<id> ... | none",
+        "    </task-runner-report>",
+        "",
+        f"`{STILL_GOING}` means you are carrying on and it comes straight back; it files nothing and"
+        " that is fine. Any other status HANDS THE JOB BACK, and then whatever is left in it has to"
+        " be a task — a remainder as a sub-issue (`task.py split`), anything else on its own"
+        " (`task.py add`). Every number here is checked: it must exist, it must not be empty, and a"
+        " remainder must really be a sub-issue of this one.",
+    ]
+
+
 def numbersIn(value):
     """The issue numbers a report line claims, which may be none and may be a lie."""
     return [int(n) for n in re.findall(r"#(\d+)", value or "")]
@@ -178,17 +202,34 @@ def numbersIn(value):
 def brokenPromises(said, store, held):
     """What the report claims against what the tracker actually holds.
 
-    The flag is not the evidence — it is the claim. An unfinished task that filed nothing is the
-    case this exists to catch, and a number that was written down but never created is the case it
-    catches by accident and is worth catching twice as much.
+    The flag is not the evidence — it is the claim. What makes the claims worth having is that every
+    one is checked here before the turn may end.
+
+    Chris, 13 September 2026: *"each time we end a turn, we need to know, what did you work on and
+    what the task_status is"*. So it is asked at EVERY turn end rather than only at the verification
+    step, and `working` exists for the reason that demands: a turn spent halfway through a job files
+    nothing and has done nothing wrong. It is the turns that HAND THE JOB BACK that have to account
+    for what is left in it.
     """
     wrong = []
-    finished = (said.get("finished") or "").strip().lower() in ("yes", "true", "done")
-    filed = sum(len(numbersIn(said.get(k))) for k in ("remainder", "blockers", "holes"))
-    if not finished and filed == 0:
-        wrong.append("you say it is not finished and filed nothing. What is left has to become a"
-                     " task or it is work that has been silently skipped.")
-    for kind in ("remainder", "blockers", "holes"):
+    status = (said.get("status") or "").strip().lower()
+    # the older two-value shape, kept readable so a turn written against it is not simply rejected
+    if not status:
+        status = "finished" if (said.get("finished") or "").strip().lower() in (
+            "yes", "true", "done") else "working"
+    if status not in (STILL_GOING,) + HANDING_BACK:
+        wrong.append(f"`status: {status}` is not one of: {STILL_GOING}, {', '.join(HANDING_BACK)}.")
+    if not (said.get("did") or "").strip():
+        wrong.append("`did:` is empty. One line on what actually happened this turn — it is the"
+                     " only record of it that survives the turn ending.")
+    filed = sum(len(numbersIn(said.get(k))) for k in ("filed", "remainder", "blockers", "holes"))
+    if status in HANDING_BACK and status != "finished" and filed == 0:
+        wrong.append(f"you are handing this back as `{status}` and filed nothing. Whatever stopped"
+                     " it has to become a task, or it is a reason that exists only in this turn.")
+    if status == "finished" and filed == 0 and (said.get("filed") or "").strip().lower() != "none":
+        wrong.append("say `filed: none` outright if the job is finished and left nothing behind."
+                     " An empty line is indistinguishable from having forgotten to answer.")
+    for kind in ("filed", "remainder", "blockers", "holes"):
         for number in numbersIn(said.get(kind)):
             if not store.exists(number):
                 wrong.append(f"the report names #{number} as a {kind} and no such task exists.")
@@ -300,16 +341,12 @@ def main():
             " checked against the tracker — a number you name here that does not exist is caught,"
             " and so is saying the job is unfinished while filing nothing:",
             "",
-            f"    <task-runner-report task=\"{held['id']}\">",
-            "    finished: yes|no",
-            "    remainder: #<id> ... | none",
-            "    blockers: #<id> ... | none",
-            "    holes: #<id> ... | none",
-            "    </task-runner-report>",
-        ])
+        ] + reportShape(held["id"]))
 
     # ---- did the model answer in the shape it was asked to? ----
-    if held is not None and run(held).get("asked"):
+    # every turn end that had a task in hand, not only the verification step: the question is what
+    # was worked on and where it stands, and that has an answer on a turn spent halfway through too
+    if held is not None:
         said = whatTheModelSaid(event)
         if said == "unreadable":
             said = None                      # cannot check this turn; fall through and take the word
@@ -321,13 +358,7 @@ def main():
                 "It is read mechanically, so it has to be there and it has to be the last thing in"
                 " your reply. Answer the question above, then end with:",
                 "",
-                f"    <task-runner-report task=\"{held['id']}\">",
-                "    finished: yes|no",
-                "    remainder: #<id> ... | none",
-                "    blockers: #<id> ... | none",
-                "    holes: #<id> ... | none",
-                "    </task-runner-report>",
-            ])
+            ] + reportShape(held["id"]))
         wrong = brokenPromises(said, store, held) if said else []
         if wrong:
             keep(state)

@@ -16,6 +16,62 @@ check() {
 }
 run() { python3 -c "$1" "$here"; }
 
+check "working on it and filing nothing is fine, because the job is not handed back" run '
+import sys, importlib.util, pathlib
+spec = importlib.util.spec_from_file_location("hook", pathlib.Path(sys.argv[1]) / "hook.py")
+hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
+class Store:
+    def exists(self, n): return True
+    def isChildOf(self, n, p): return True
+wrong = hook.brokenPromises({"status": "working", "did": "wrote the failing test", "filed": "none"},
+                            Store(), {"id": 13})
+if wrong:
+    print("objected to a turn spent halfway through a job:", wrong)
+    sys.exit(1)
+'
+
+check "handing it back stopped, with nothing filed, is a failure" run '
+import sys, importlib.util, pathlib
+spec = importlib.util.spec_from_file_location("hook", pathlib.Path(sys.argv[1]) / "hook.py")
+hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
+class Store:
+    def exists(self, n): return True
+    def isChildOf(self, n, p): return True
+wrong = hook.brokenPromises({"status": "needs-feedback", "did": "hit a fork", "filed": "none"},
+                            Store(), {"id": 13})
+if not wrong:
+    print("a reason that exists only in this turn was accepted")
+    sys.exit(1)
+'
+
+check "a turn that says nothing about what it did is a failure" run '
+import sys, importlib.util, pathlib
+spec = importlib.util.spec_from_file_location("hook", pathlib.Path(sys.argv[1]) / "hook.py")
+hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
+class Store:
+    def exists(self, n): return True
+    def isChildOf(self, n, p): return True
+wrong = hook.brokenPromises({"status": "working", "filed": "none"}, Store(), {"id": 13})
+if not any("did" in w for w in wrong):
+    print("a turn ended with no record of what happened in it")
+    sys.exit(1)
+'
+
+check "finished must say filed-none outright rather than leaving it blank" run '
+import sys, importlib.util, pathlib
+spec = importlib.util.spec_from_file_location("hook", pathlib.Path(sys.argv[1]) / "hook.py")
+hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
+class Store:
+    def exists(self, n): return True
+    def isChildOf(self, n, p): return True
+if not hook.brokenPromises({"status": "finished", "did": "shipped it", "filed": ""}, Store(), {"id": 13}):
+    print("an unanswered line read as an answer")
+    sys.exit(1)
+if hook.brokenPromises({"status": "finished", "did": "shipped it", "filed": "none"}, Store(), {"id": 13}):
+    print("saying none outright was rejected")
+    sys.exit(1)
+'
+
 check "an unfinished task that filed nothing is a failure" run '
 import sys, importlib.util, pathlib
 spec = importlib.util.spec_from_file_location("hook", pathlib.Path(sys.argv[1]) / "hook.py")
@@ -23,8 +79,8 @@ hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
 class Store:
     def exists(self, n): return True
     def isChildOf(self, n, p): return True
-wrong = hook.brokenPromises({"finished": "no", "remainder": "none", "blockers": "none",
-                             "holes": "none"}, Store(), {"id": 13})
+wrong = hook.brokenPromises({"status": "needs-respec", "did": "tried and could not",
+                             "filed": "none"}, Store(), {"id": 13})
 if not wrong:
     print("it said unfinished and filed nothing, and nothing objected")
     sys.exit(1)
@@ -37,7 +93,7 @@ hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
 class Store:
     def exists(self, n): return True
     def isChildOf(self, n, p): return True
-wrong = hook.brokenPromises({"finished": "no", "remainder": "#112 #113"}, Store(), {"id": 13})
+wrong = hook.brokenPromises({"status": "finished", "did": "split it", "remainder": "#112 #113"}, Store(), {"id": 13})
 if wrong:
     print("objected to a turn that did exactly the right thing:", wrong)
     sys.exit(1)
@@ -50,7 +106,7 @@ hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
 class Store:
     def exists(self, n): return True
     def isChildOf(self, n, p): return True
-if hook.brokenPromises({"finished": "yes", "remainder": "none"}, Store(), {"id": 13}):
+if hook.brokenPromises({"status": "finished", "did": "shipped it", "filed": "none"}, Store(), {"id": 13}):
     print("a job that is actually done has nothing left to file")
     sys.exit(1)
 '
@@ -62,7 +118,7 @@ hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
 class Store:
     def exists(self, n): return False
     def isChildOf(self, n, p): return True
-if not hook.brokenPromises({"finished": "no", "holes": "#999"}, Store(), {"id": 13}):
+if not hook.brokenPromises({"status": "blocked", "did": "hit a wall", "holes": "#999"}, Store(), {"id": 13}):
     print("it named an issue that was never created and nothing objected")
     sys.exit(1)
 '
@@ -74,7 +130,7 @@ hook = importlib.util.module_from_spec(spec); spec.loader.exec_module(hook)
 class Store:
     def exists(self, n): return True
     def isChildOf(self, n, p): return False
-wrong = hook.brokenPromises({"finished": "no", "remainder": "#41"}, Store(), {"id": 13})
+wrong = hook.brokenPromises({"status": "finished", "did": "split it", "remainder": "#41"}, Store(), {"id": 13})
 if not any("sub-issue" in w for w in wrong):
     print("the rest of a job was left floating free of the job")
     sys.exit(1)
