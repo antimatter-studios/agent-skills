@@ -43,7 +43,7 @@ def main():
             return None
         at = args.index(flag)
         value = args[at + 1] if at + 1 < len(args) else None
-        args = args[:at] + args[at + 2:]
+        args = args[:at] + args[at + 2 :]
         return value
 
     check = pull("--check")
@@ -80,7 +80,9 @@ def main():
     """
     if check and "--anyway" not in sys.argv:
         try:
-            ran = subprocess.run(check, shell=True, capture_output=True, text=True, timeout=900)
+            ran = subprocess.run(
+                check, shell=True, capture_output=True, text=True, timeout=900, check=False
+            )
         except subprocess.TimeoutExpired:
             ran = None
         if ran is not None and ran.returncode == 0:

@@ -35,15 +35,15 @@ it did.
 """
 
 import json
-import re
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from source import source                                            # noqa: E402
+from source import source  # noqa: E402
 
 MAX_BOUNCES = int(os.environ.get("TASK_LOOP_MAX", "40"))
 CHECK_TIMEOUT = int(os.environ.get("TASK_CHECK_TIMEOUT", "900"))
@@ -68,7 +68,7 @@ def keep(state):
     try:
         STATE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
     except OSError:
-        pass                                   # no .git, or read-only: the loop still works
+        pass  # no .git, or read-only: the loop still works
 
 
 def now():
@@ -86,7 +86,9 @@ def head():
 
 def passes(check):
     try:
-        ran = subprocess.run(check, shell=True, capture_output=True, text=True, timeout=CHECK_TIMEOUT)
+        ran = subprocess.run(
+            check, shell=True, capture_output=True, text=True, timeout=CHECK_TIMEOUT, check=False
+        )
     except subprocess.TimeoutExpired:
         return False, f"did not finish inside {CHECK_TIMEOUT}s"
     if ran.returncode == 0:
@@ -131,9 +133,12 @@ def say(lines):
 # --- the contract the model has to answer in, and the check that does not trust it ---
 
 REPORT = re.compile(
-    r"<task-runner-report[^>]*>(.*?)</task-runner-report>", re.S | re.I)
-FIELD = re.compile(r"^\s*(status|did|filed|finished|remainder|blockers|holes)\s*:\s*(.+?)\s*$",
-                   re.I | re.M)
+    r"<task-runner-report[^>]*>(.*?)</task-runner-report>", re.DOTALL | re.IGNORECASE
+)
+FIELD = re.compile(
+    r"^\s*(status|did|filed|finished|remainder|blockers|holes)\s*:\s*(.+?)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 # What a turn can end in. `working` is the one that files nothing and is not a failure: the task is
 # still in hand and the loop will bring it straight back. Everything else is HANDING IT BACK, and
@@ -180,7 +185,7 @@ def whatTheModelSaid(event):
 def reportShape(ident):
     """The block, written once, so the two places that ask for it cannot drift apart."""
     return [
-        f"    <task-runner-report task=\"{ident}\">",
+        f'    <task-runner-report task="{ident}">',
         f"    status: {STILL_GOING}|{'|'.join(HANDING_BACK)}",
         "    did: <one line on what actually happened this turn>",
         "    filed: #<id> ... | none",
@@ -215,20 +220,29 @@ def brokenPromises(said, store, held):
     status = (said.get("status") or "").strip().lower()
     # the older two-value shape, kept readable so a turn written against it is not simply rejected
     if not status:
-        status = "finished" if (said.get("finished") or "").strip().lower() in (
-            "yes", "true", "done") else "working"
+        status = (
+            "finished"
+            if (said.get("finished") or "").strip().lower() in ("yes", "true", "done")
+            else "working"
+        )
     if status not in (STILL_GOING,) + HANDING_BACK:
         wrong.append(f"`status: {status}` is not one of: {STILL_GOING}, {', '.join(HANDING_BACK)}.")
     if not (said.get("did") or "").strip():
-        wrong.append("`did:` is empty. One line on what actually happened this turn — it is the"
-                     " only record of it that survives the turn ending.")
+        wrong.append(
+            "`did:` is empty. One line on what actually happened this turn — it is the"
+            " only record of it that survives the turn ending."
+        )
     filed = sum(len(numbersIn(said.get(k))) for k in ("filed", "remainder", "blockers", "holes"))
     if status in HANDING_BACK and status != "finished" and filed == 0:
-        wrong.append(f"you are handing this back as `{status}` and filed nothing. Whatever stopped"
-                     " it has to become a task, or it is a reason that exists only in this turn.")
+        wrong.append(
+            f"you are handing this back as `{status}` and filed nothing. Whatever stopped"
+            " it has to become a task, or it is a reason that exists only in this turn."
+        )
     if status == "finished" and filed == 0 and (said.get("filed") or "").strip().lower() != "none":
-        wrong.append("say `filed: none` outright if the job is finished and left nothing behind."
-                     " An empty line is indistinguishable from having forgotten to answer.")
+        wrong.append(
+            "say `filed: none` outright if the job is finished and left nothing behind."
+            " An empty line is indistinguishable from having forgotten to answer."
+        )
     for kind in ("filed", "remainder", "blockers", "holes"):
         for number in numbersIn(said.get(kind)):
             if not store.exists(number):
@@ -236,8 +250,10 @@ def brokenPromises(said, store, held):
             elif kind == "remainder" and not store.isChildOf(number, held["id"]):
                 # the mistake that was made four times in one afternoon: a remainder filed with
                 # `add` rather than `split`, so the rest of a job floats free of the job
-                wrong.append(f"#{number} is called the remainder of #{held['id']} and is not a"
-                             f" sub-issue of it. Use `task.py split {held['id']}`, not `add`.")
+                wrong.append(
+                    f"#{number} is called the remainder of #{held['id']} and is not a"
+                    f" sub-issue of it. Use `task.py split {held['id']}`, not `add`."
+                )
     return wrong
 
 
@@ -252,13 +268,16 @@ def main():
     tasks = store.tasks()
     if not tasks:
         STATE.unlink(missing_ok=True)
-        sys.exit(0)                          # nothing waiting: this is what done looks like
+        sys.exit(0)  # nothing waiting: this is what done looks like
     state = bookkeeping()
     runs = state.setdefault("runs", {})
     bounces = state.get("bounces", 0)
     if bounces >= MAX_BOUNCES:
         STATE.unlink(missing_ok=True)
-        print(f"task-runner: stopping after {bounces} turns; work remains on the list.", file=sys.stderr)
+        print(
+            f"task-runner: stopping after {bounces} turns; work remains on the list.",
+            file=sys.stderr,
+        )
         sys.exit(0)
 
     def run(task):
@@ -279,69 +298,81 @@ def main():
 
     if held is not None and not run(held).get("asked"):
         check = held.get("check")
-        verdict, why = (passes(check) if check else (None, ""))
+        verdict, why = passes(check) if check else (None, "")
         run(held)["asked"] = now()
         state["bounces"] = bounces + 1
         keep(state)
 
         if verdict is True:
-            evidence = [f"Its check passes: `{check}`. That is evidence the symptom is gone — it is"
-                        " not evidence the whole task is done, so read it before agreeing with it."]
+            evidence = [
+                f"Its check passes: `{check}`. That is evidence the symptom is gone — it is"
+                " not evidence the whole task is done, so read it before agreeing with it."
+            ]
         elif verdict is False:
-            evidence = [f"Its check FAILS: `{check}`" + (f"\n    {why}" if why else ""),
-                        "So it is not finished, whatever the turn looked like."]
+            evidence = [
+                f"Its check FAILS: `{check}`" + (f"\n    {why}" if why else ""),
+                "So it is not finished, whatever the turn looked like.",
+            ]
         else:
-            evidence = ["It has no check, so nothing but your word can say either way. Say plainly"
-                        " which it is."]
+            evidence = [
+                "It has no check, so nothing but your word can say either way. Say plainly"
+                " which it is."
+            ]
 
-        say([
-            f"Task {held['id']} ({store.label}) is in hand and this turn is over. "
-            "Before anything else moves:",
-            "",
-            f"    {held['what']}",
-            "",
-        ] + evidence + comingRoundAgain(run(held).get("attempts", 1)) + [
-            "",
-            "Answer in the file, not in prose.",
-            "",
-            "  - Finished: mark it `\"done\"` with a timestamp.",
-            "  - Not finished: add the remaining work as new tasks INSERTED DIRECTLY BELOW this one,"
-            " so the next guard picks up the rest of this same job while it is still in your head."
-            " Then mark this one done.",
-            "",
-            "  - EITHER WAY, file what the work turned up. A task that finished green still found"
-            " things, and they are gone the moment this turn ends: you are the only one who saw"
-            " them, and nobody reading the diff later will know they were ever noticed. Three kinds,"
-            " and they take three different shapes because they are three different facts:",
-            "      * REMAINDER — what is left of THIS job. A sub-issue of it, inserted below, as"
-            " above.",
-            "      * BLOCKER — a thing that has to happen before this can, found by trying. Its own"
-            " task, with this one recorded as blocked by it. Not a child: it is not part of this"
-            " job, it is in front of it.",
-            "      * HOLE — something wrong or missing NEXT DOOR, found while reading. Nothing to do"
-            " with this task and no relation to it. Its own task, on its own.",
-            "    A hole you mention in prose and do not file is a hole you found and threw away."
-            " Write down what you saw, where, and why it matters — enough that somebody who was not"
-            " here can pick it up cold.",
-            "  - You tried and could not: that is `needs-respec`, and the label is the small part."
-            " Comment with the ATTEMPT — what you actually did, what happened, where it stopped, and"
-            " your best guess at what the task does not say. Do not rewrite the task yourself: you"
-            " are the one who could not read it, so your version is likely wrong the same way. A"
-            " person respecifies it from your account, which is why the account is the deliverable.",
-            "    Other reasons it cannot go on, all of which LEAVE IT OPEN: `needs-hands` where it"
-            " wants a person's device, eye or judgement; `cant-fix` where it is blocked on something"
-            " outside this repository. You being unable to do a thing is not a decision that nobody"
-            " should. Only close — reason `not planned` — when it should not be done by anybody at"
-            " all, and say why.",
-            "",
-            "Do not leave it unanswered. Work that is skipped silently is the thing this exists to"
-            " prevent; work that is written down as outstanding is fine.",
-            "",
-            "AND END YOUR REPLY WITH THIS BLOCK, exactly, filled in. It is read mechanically and"
-            " checked against the tracker — a number you name here that does not exist is caught,"
-            " and so is saying the job is unfinished while filing nothing:",
-            "",
-        ] + reportShape(held["id"]))
+        say(
+            [
+                f"Task {held['id']} ({store.label}) is in hand and this turn is over. "
+                "Before anything else moves:",
+                "",
+                f"    {held['what']}",
+                "",
+            ]
+            + evidence
+            + comingRoundAgain(run(held).get("attempts", 1))
+            + [
+                "",
+                "Answer in the file, not in prose.",
+                "",
+                '  - Finished: mark it `"done"` with a timestamp.',
+                "  - Not finished: add the remaining work as new tasks INSERTED DIRECTLY BELOW this one,"
+                " so the next guard picks up the rest of this same job while it is still in your head."
+                " Then mark this one done.",
+                "",
+                "  - EITHER WAY, file what the work turned up. A task that finished green still found"
+                " things, and they are gone the moment this turn ends: you are the only one who saw"
+                " them, and nobody reading the diff later will know they were ever noticed. Three kinds,"
+                " and they take three different shapes because they are three different facts:",
+                "      * REMAINDER — what is left of THIS job. A sub-issue of it, inserted below, as"
+                " above.",
+                "      * BLOCKER — a thing that has to happen before this can, found by trying. Its own"
+                " task, with this one recorded as blocked by it. Not a child: it is not part of this"
+                " job, it is in front of it.",
+                "      * HOLE — something wrong or missing NEXT DOOR, found while reading. Nothing to do"
+                " with this task and no relation to it. Its own task, on its own.",
+                "    A hole you mention in prose and do not file is a hole you found and threw away."
+                " Write down what you saw, where, and why it matters — enough that somebody who was not"
+                " here can pick it up cold.",
+                "  - You tried and could not: that is `needs-respec`, and the label is the small part."
+                " Comment with the ATTEMPT — what you actually did, what happened, where it stopped, and"
+                " your best guess at what the task does not say. Do not rewrite the task yourself: you"
+                " are the one who could not read it, so your version is likely wrong the same way. A"
+                " person respecifies it from your account, which is why the account is the deliverable.",
+                "    Other reasons it cannot go on, all of which LEAVE IT OPEN: `needs-hands` where it"
+                " wants a person's device, eye or judgement; `cant-fix` where it is blocked on something"
+                " outside this repository. You being unable to do a thing is not a decision that nobody"
+                " should. Only close — reason `not planned` — when it should not be done by anybody at"
+                " all, and say why.",
+                "",
+                "Do not leave it unanswered. Work that is skipped silently is the thing this exists to"
+                " prevent; work that is written down as outstanding is fine.",
+                "",
+                "AND END YOUR REPLY WITH THIS BLOCK, exactly, filled in. It is read mechanically and"
+                " checked against the tracker — a number you name here that does not exist is caught,"
+                " and so is saying the job is unfinished while filing nothing:",
+                "",
+            ]
+            + reportShape(held["id"])
+        )
 
     # ---- did the model answer in the shape it was asked to? ----
     #
@@ -354,21 +385,27 @@ def main():
     if held is not None and run(held).get("asked"):
         said = whatTheModelSaid(event)
         if said == "unreadable":
-            said = None                      # cannot check this turn; fall through and take the word
+            said = None  # cannot check this turn; fall through and take the word
         elif said is None:
             keep(state)
-            say([
-                f"Task {held['id']} was asked for and the report block is missing.",
-                "",
-                "It is read mechanically, so it has to be there and it has to be the last thing in"
-                " your reply. Answer the question above, then end with:",
-                "",
-            ] + reportShape(held["id"]))
+            say(
+                [
+                    f"Task {held['id']} was asked for and the report block is missing.",
+                    "",
+                    "It is read mechanically, so it has to be there and it has to be the last thing in"
+                    " your reply. Answer the question above, then end with:",
+                    "",
+                ]
+                + reportShape(held["id"])
+            )
         wrong = brokenPromises(said, store, held) if said else []
         if wrong:
             keep(state)
-            say([f"Task {held['id']}: the report does not hold up."] + [f"  - {w}" for w in wrong]
-                + ["", "File what is missing, then report again."])
+            say(
+                [f"Task {held['id']}: the report does not hold up."]
+                + [f"  - {w}" for w in wrong]
+                + ["", "File what is missing, then report again."]
+            )
 
     # ---- the task in hand has been answered for: settle it ----
     if held is not None:
@@ -380,13 +417,16 @@ def main():
             else:
                 state["bounces"] = bounces + 1
                 keep(state)
-                say([
-                    f"Task {held['id']} is not done: `{check}` still fails.",
-                    f"    {why}" if why else "",
-                    "",
-                    "Either finish it, or split what is left into tasks below this one and say which"
-                    " part is blocked and on what.",
-                ] + comingRoundAgain(run(held).get("attempts", 1)))
+                say(
+                    [
+                        f"Task {held['id']} is not done: `{check}` still fails.",
+                        f"    {why}" if why else "",
+                        "",
+                        "Either finish it, or split what is left into tasks below this one and say which"
+                        " part is blocked and on what.",
+                    ]
+                    + comingRoundAgain(run(held).get("attempts", 1))
+                )
         else:
             # no check: the model's word, and the store says so where a reader will see it
             store.mark_done(held, now(), verified=False)
@@ -398,12 +438,14 @@ def main():
         # everything left is waiting on something that is itself still open, which is a fact worth
         # saying rather than a silent stop: it means the queue is ordered wrongly or a blocker is stuck
         blocked = ", ".join(f"#{t['id']} waits on {t['waiting_on']}" for t in waiting[:5])
-        print(f"task-runner: nothing workable — every remaining task is blocked ({blocked}).",
-              file=sys.stderr)
+        print(
+            f"task-runner: nothing workable — every remaining task is blocked ({blocked}).",
+            file=sys.stderr,
+        )
         sys.exit(0)
     if following is None:
         STATE.unlink(missing_ok=True)
-        sys.exit(0)                                  # the list is empty: this is what done looks like
+        sys.exit(0)  # the list is empty: this is what done looks like
 
     # ---- guard two: hand over the first unfinished task ----
     run(following)["handed"] = now()
@@ -419,9 +461,12 @@ def main():
     # and everything written on it since, which is where the answers to anything it asked will be
     said = store.said(following)
     if said:
-        lines += ["", f"--- {len(said)} comment(s) on this task, oldest first. READ THEM BEFORE"
-                  " STARTING: a task that stopped for an answer has the answer here, and a task"
-                  " that did not may still have been argued about since it was written. ---"]
+        lines += [
+            "",
+            f"--- {len(said)} comment(s) on this task, oldest first. READ THEM BEFORE"
+            " STARTING: a task that stopped for an answer has the answer here, and a task"
+            " that did not may still have been argued about since it was written. ---",
+        ]
         for note in said:
             when = (note["when"] or "")[:10]
             lines += ["", f"  [{when}] {note['by']}:", ""]

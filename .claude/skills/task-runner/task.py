@@ -33,12 +33,11 @@ time* means each one is a fresh chance to be subtly different, and subtly differ
 kind of wrong that still returns a plausible answer.
 """
 
-import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from source import source, STUCK_LABELS      # noqa: E402
+from source import STUCK_LABELS, source  # noqa: E402
 
 
 def main():
@@ -54,7 +53,7 @@ def main():
             return None
         at = rest.index(flag)
         value = rest[at + 1] if at + 1 < len(rest) else None
-        del rest[at:at + 2]
+        del rest[at : at + 2]
         return value
 
     if what == "list":
@@ -100,13 +99,14 @@ def main():
         unknown = [l for l in add if l not in STUCK_LABELS and not l.startswith("needs-")]
         if unknown:
             print(f"not a state this runner knows: {unknown}", file=sys.stderr)
-        store.label({"id": ident}, add=add, remove=off)
+        store.relabel({"id": ident}, add=add, remove=off)
         print(f"#{ident}: +{add} -{off}")
         return 0
 
     if what == "done":
         check = pull("--check")
         from datetime import datetime, timezone
+
         when = datetime.now(timezone.utc).isoformat(timespec="seconds")
         store.mark_done({"id": int(rest[0]), "check": check}, when, verified=bool(check))
         return 0
