@@ -66,7 +66,13 @@ def main():
                 wrong.append(
                     f"#{issue['number']} has sub-issue #{kid} and never names it in the body"
                 )
-        for said in {int(n) for n in SAYS.findall(body)} - set(waits):
+        # only lines about THIS issue: a body that lists its children and says which of them is
+        # blocked reads as the parent being blocked, which it is not. The bullet naming a child is
+        # the child's business, and this used to report it as a missing relation on the parent
+        own = "\n".join(
+            line for line in body.splitlines() if not line.lstrip().startswith(("-", "*"))
+        )
+        for said in {int(n) for n in SAYS.findall(own)} - set(waits):
             wrong.append(f"#{issue['number']} says it waits on #{said} with no blocked-by relation")
         for kid in set(kids) & set(waits):
             wrong.append(
