@@ -91,4 +91,49 @@ with tempfile.TemporaryDirectory() as tmp:
         sys.exit(1)
 '
 
+check "a task carries the conversation that has happened on it" run '
+import ast, pathlib, sys
+tree = ast.parse((pathlib.Path(sys.argv[1]) / "source.py").read_text())
+classes = {n.name: {i.name for i in n.body if isinstance(i, ast.FunctionDef)}
+           for n in tree.body if isinstance(n, ast.ClassDef)}
+for name in ("FileTasks", "IssueTasks"):
+    if "said" not in classes.get(name, set()):
+        print(f"{name} cannot hand back what has been said on a task")
+        sys.exit(1)
+'
+
+check "the brief read out includes it" run '
+import pathlib, sys
+body = (pathlib.Path(sys.argv[1]) / "hook.py").read_text()
+if "store.said(" not in body:
+    print("the hook hands out a task without the answers written on it")
+    sys.exit(1)
+'
+
+check "a fork for a person is not the same state as work wanting hands" run '
+import pathlib, sys
+body = (pathlib.Path(sys.argv[1]) / "source.py").read_text()
+if "needs-feedback" not in body:
+    print("needs-feedback is not one of the states a task can stop in")
+    sys.exit(1)
+'
+
+check "a task stopped for a person is never closed behind their back" run '
+import ast, pathlib, sys
+src = (pathlib.Path(sys.argv[1]) / "source.py").read_text()
+tree = ast.parse(src)
+body = None
+for node in ast.walk(tree):
+    if isinstance(node, ast.ClassDef) and node.name == "IssueTasks":
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef) and item.name == "mark_done":
+                body = ast.get_source_segment(src, item)
+if body is None:
+    print("IssueTasks has no mark_done")
+    sys.exit(1)
+if "STUCK_LABELS" not in body and "stuck" not in body:
+    print("mark_done closes a task whatever label says it is waiting for somebody")
+    sys.exit(1)
+'
+
 exit $((fails > 0))
