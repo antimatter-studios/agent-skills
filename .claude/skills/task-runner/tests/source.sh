@@ -66,6 +66,11 @@ body = (pathlib.Path(sys.argv[1]) / "source.py").read_text()
 if "addBlockedBy(input:" not in body:
     print("addBlockedBy is documented and nothing writes one")
     sys.exit(1)
+# the field is blockingIssueId. The first version of this said blockedByIssueId, which reads
+# correctly, matches the mutation name, and is rejected by the API — a mutation nobody ran once
+if "blockingIssueId" not in body:
+    print("addBlockedBy takes blockingIssueId; blockedByIssueId is rejected")
+    sys.exit(1)
 '
 
 check "the file source keeps blockers somewhere the sort can see" run '
