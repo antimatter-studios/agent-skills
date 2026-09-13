@@ -180,6 +180,16 @@ Two honest endings when a task goes green, and both end the same way:
 Worth enforcing rather than remembering: a test that lists `checks/*.sh` against the open issues and
 fails on any script whose issue is closed. Then the scaffolding cannot quietly become furniture.
 
+### And this skill's own
+
+`tests/source.sh` runs the same discipline on the runner itself. Both task sources have to answer
+the same questions, because the hook does not know which one it is talking to, and that agreement is
+exactly the kind that rots without being noticed: a method added to one source and forgotten on the
+other fails only on a repository nobody is testing on. Two faults found on 13 September 2026 are
+pinned there — a `say` copied from the GitHub source into the file one, keeping a `_gh` call the
+file source has not got and shadowed by a second definition of the same name below it; and
+`addBlockedBy`, documented as the way to record ordering, with nothing anywhere able to write one.
+
 ### Why issues, given a file is faster
 
 A `gh` call measures about half a second against roughly a millisecond for a file. That was the
@@ -348,13 +358,17 @@ relations, one of them checked. The written line still works as a fallback for i
 linked up, but the relation is read first: it is structural, it shows in the interface, and it cannot
 drift from a reword.
 
+**Say so with `source.block`.** For a while the loop could *obey* a blocker and not *create* one, so
+the only ways to record ordering were a person adding it in the interface or a body line a reword
+could quietly undo — and a relation the loop obeys but cannot write is a relation that mostly does
+not exist. Both sources now take it: on GitHub it is the `addBlockedBy` mutation, and in the file it
+is a `blocked_by` field the sort reads. Reach for it when a task turns out to need another one first
+— which is a different discovery from splitting a task, and belongs in a different relation.
+
 **Decided against — close it, `--reason "not planned"`.** This one is rare and it is a *decision*,
 not an observation about who can do the work. Reach for it only when the task should not be done by
 anybody. If there is any doubt, label it and leave it open: an issue nobody can find again is worse
 than one that sits in the list with a reason attached.
-
-And **waiting on another task** — `Blocked by #25` in the body, which is ordering rather than
-impossibility and resolves itself when #25 closes.
 
 ## Stopping it
 
