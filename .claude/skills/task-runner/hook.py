@@ -344,9 +344,14 @@ def main():
         ] + reportShape(held["id"]))
 
     # ---- did the model answer in the shape it was asked to? ----
-    # every turn end that had a task in hand, not only the verification step: the question is what
-    # was worked on and where it stands, and that has an answer on a turn spent halfway through too
-    if held is not None:
+    #
+    # The verification turn only, and that is a decision rather than an omission. It was asked at
+    # every turn end for an afternoon, which works — `working` exists for exactly that case — but
+    # demanding a status when there is nothing to decide produces a ritual: `status: working, filed:
+    # none`, every turn, for ever. A form filled in out of habit stops being evidence, which is the
+    # precise failure this block was built to prevent. The verification turn is the one where
+    # something is actually settled about the task, so it is the one that has to account for itself.
+    if held is not None and run(held).get("asked"):
         said = whatTheModelSaid(event)
         if said == "unreadable":
             said = None                      # cannot check this turn; fall through and take the word

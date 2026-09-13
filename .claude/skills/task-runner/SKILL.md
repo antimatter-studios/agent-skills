@@ -410,15 +410,19 @@ task is not complete and two tasks are created. But task_complete:false, issues_
 a failure, because if the task is not complete, claude is required to create issues to fill the
 gaps. But it didn't."*
 
-Asked at **every turn end that had a task in hand**, not only at the verification step. Chris, 13
-September 2026: *"each time we end a turn, we need to know, what did you work on and what the
-task_status is"*.
+Asked at the **verification turn** — the one where the hook has put a task's completion in question
+— and deliberately not at every turn end.
 
-`working` is why that is possible. A turn spent halfway through a job files nothing and has done
-nothing wrong — it says so, and the same task comes straight back. Every other status **hands the
-job back**, and then whatever is left in it has to be a task, or it is a reason that existed for one
-turn and is now gone. `did:` is the other half of the question and is required in all of them: one
-line on what actually happened, which is the only record of the turn that survives it.
+It was asked at every turn end for an afternoon and it works: `working` is the status for a turn
+spent halfway through a job, which files nothing and has done nothing wrong. The reason to stop is
+not that it broke. It is that demanding a status when nothing has been decided produces a ritual —
+`status: working, filed: none`, every turn, for ever — and a form filled in out of habit stops being
+evidence, which is the precise failure this block exists to prevent.
+
+`working` stays, because a task can still be unfinished at a verification turn and want another go.
+Every other status **hands the job back**, and then whatever is left in it has to be a task, or it
+is a reason that existed for one turn and is now gone. `did:` is required in all of them: one line
+on what actually happened, which is the only record of that turn which survives it.
 
 **The flags are claims, not evidence.** What makes them worth having is that every one is checked
 against the tracker before the turn is allowed to end, and a turn that does not hold up is sent
