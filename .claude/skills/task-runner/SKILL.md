@@ -394,6 +394,42 @@ not an observation about who can do the work. Reach for it only when the task sh
 anybody. If there is any doubt, label it and leave it open: an issue nobody can find again is worse
 than one that sits in the list with a reason attached.
 
+## The report, and why the flags are checked rather than believed
+
+Everything above is an instruction, and an instruction is a thing the model can simply not follow
+while nothing notices. So the verification turn has to end with a block the hook reads:
+
+    <task-runner-report task="13">
+    finished: yes|no
+    remainder: #41 #42 | none
+    blockers: #36 | none
+    holes: none
+    </task-runner-report>
+
+Chris, 13 September 2026: *"task_complete:false, issues_created:[112,113] would be ok, because the
+task is not complete and two tasks are created. But task_complete:false, issues_created:[] would be
+a failure, because if the task is not complete, claude is required to create issues to fill the
+gaps. But it didn't."*
+
+**The flags are claims, not evidence.** What makes them worth having is that every one is checked
+against the tracker before the turn is allowed to end, and a turn that does not hold up is sent
+back:
+
+- **unfinished and nothing filed** — the case above, and the reason the block exists.
+- **a number that does not exist** — a task can be named in a report and never created, and saying
+  so is free.
+- **a task that exists and is empty** — a title with nothing under it satisfies "an issue exists"
+  and is useless to whoever picks it up months later with none of the context that made it obvious.
+  Eighty characters of body, which is not an essay and is more than a reminder.
+- **a remainder that is not a sub-issue** — the mistake made four times in one afternoon: filed
+  with `add` instead of `split`, so the rest of a job floats free of the job and sorts by number
+  instead of coming next.
+
+The Stop event carries the transcript path, so the turn's own words are readable from the hook. That
+is the whole difference between a hook that **asks** and a hook that **checks** — and where the
+transcript cannot be read, the report is taken on trust rather than reported missing: a loop that
+cannot be escaped by doing the right thing is the worst kind there is.
+
 ## Touching the tracker
 
 **Never hand-write a `gh` command or a GraphQL mutation. Ask for the operation by name.**
