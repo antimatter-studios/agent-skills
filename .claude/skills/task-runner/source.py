@@ -148,6 +148,14 @@ class FileTasks:
                 t.pop("unverified", None)
         self._write(data)
 
+    def unblock(self, task, on):
+        """It was not waiting on that after all, or it has stopped."""
+        data = self._read()
+        for t in data.get("tasks", []):
+            if t.get("id") == task["id"] and on in t.get("blocked_by", []):
+                t["blocked_by"].remove(on)
+        self._write(data)
+
     def said(self, task):
         """What has been said on this task since it was written.
 
@@ -461,6 +469,31 @@ class IssueTasks:
         if why:
             args += ["--comment", why]
         self._gh(*args)
+
+    def unblock(self, task, on):
+        """It was not waiting on that after all.
+
+        Needed within an hour of `block` existing, because the first thing anybody does with a
+        relation is get one backwards — a remainder was recorded as blocked by the item it is the
+        remainder OF, which is the dependency upside down. Without this the fix was a hand-written
+        mutation, which is the thing this vocabulary exists to stop.
+        """
+        ids = {}
+        for number in (task["id"], on):
+            got = self._gh("issue", "view", str(number), "--json", "id")
+            if got.returncode != 0:
+                return
+            ids[number] = json.loads(got.stdout)["id"]
+        self._gh(
+            "api",
+            "graphql",
+            "-f",
+            "query=mutation($i:ID!,$b:ID!){removeBlockedBy(input:{issueId:$i,blockingIssueId:$b}){clientMutationId}}",
+            "-f",
+            f"i={ids[task['id']]}",
+            "-f",
+            f"b={ids[on]}",
+        )
 
     def said(self, task):
         """Everything written on this task since, oldest first.

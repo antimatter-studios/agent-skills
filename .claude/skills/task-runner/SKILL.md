@@ -454,6 +454,7 @@ cannot be escaped by doing the right thing is the worst kind there is.
     task.py add "<text>" [--check C]  a task with no parent: a hole found next door
     task.py split <id> "<text>"       the REMAINDER of that job, as a sub-issue of it
     task.py block <id> <on>           <id> cannot start until <on> is finished
+    task.py unblock <id> <on>         it was not waiting on that after all
     task.py label <id> +a -b          put a state on it, or take one off
     task.py done <id> [--check C]     finished; refuses if a label says it is waiting
     task.py reopen <id> "<why>"       un-close something that should not have been
