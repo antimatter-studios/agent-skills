@@ -526,6 +526,9 @@ def main():
         else:
             # no check: the model's word, and the store says so where a reader will see it
             store.mark_done(held, now(), verified=False)
+        # and it stops being the task in hand whichever way it went, so nothing downstream goes on
+        # naming a job that is finished — `inhand.py` read a closed issue off this for an afternoon
+        run(held).pop("handed", None)
 
     waiting = store.tasks(after=held["id"] if held else None)
     workable = [t for t in waiting if not t.get("waiting_on")]
