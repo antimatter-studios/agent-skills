@@ -340,15 +340,6 @@ def main():
         sys.exit(0)
     if event.get("stop_hook_active"):
         sys.exit(0)
-    # Somebody else is driving the queue.
-    #
-    # `run.sh` works the same list from outside the session, one `claude -p` at a time. With this
-    # hook also armed, the interactive session gets handed the task the subprocess is already on —
-    # two agents, one task, and whichever finishes second overwrites the first. Found within a
-    # minute of the runner's first real run.
-    if Path(".git/task-runner.lock").exists():
-        print("task-runner: run.sh is working the queue; leaving it to that", file=sys.stderr)
-        sys.exit(0)
     store = source()
     tasks = store.tasks()
     if not tasks:
@@ -522,6 +513,7 @@ def main():
     # none`, every turn, for ever. A form filled in out of habit stops being evidence, which is the
     # precise failure this block was built to prevent. The verification turn is the one where
     # something is actually settled about the task, so it is the one that has to account for itself.
+    said = None
     if held is not None and run(held).get("asked"):
         said = whatTheModelSaid(event)
         if said == "unreadable":
@@ -549,7 +541,13 @@ def main():
             )
 
     # ---- the task in hand has been answered for: settle it ----
-    if held is not None:
+    #
+    # Unless it said it is still going. `working` is documented as "you are carrying on and it comes
+    # straight back", and this block settled the task regardless of what the report said — so a turn
+    # that reported `working` had its issue closed underneath it, mid-edit, with a comment saying
+    # nothing had verified it. The whole status was a lie for as long as it existed.
+    stillGoing = bool(said) and (said.get("status") or "").strip().lower() == STILL_GOING
+    if held is not None and not stillGoing:
         check = held.get("check")
         if check:
             ok, why = passes(check)
