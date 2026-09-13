@@ -53,6 +53,32 @@ LABEL = os.environ.get("TASK_LABEL", "task-runner")
 # not, and a label is the only thing on an issue that is visible at a glance and queryable
 RED_LABEL = os.environ.get("TASK_RED_LABEL", "check-was-red")
 
+# Work that cannot be done by whoever is running the loop, and is not waiting on another task.
+#
+# The first task this queue offered was a phone layout whose remaining half is, in its own words,
+# "the part that wants a real thumb on real glass rather than an emulator". Nothing in the tracker
+# could say that: `Blocked by #N` covers a task waiting on a task, and this is a task waiting on a
+# person with a device. Without a way to say it, the loop hands the same impossible thing back every
+# time it comes round, which is how a queue teaches somebody to stop reading it.
+HANDS_LABEL = os.environ.get("TASK_HANDS_LABEL", "needs-hands")
+
+# Work somebody has already decided cannot be done, which the loop must stop offering.
+#
+# Chris, 2026-09-13: "we should update the issues with tags like cant_fix or wont_fix and this will
+# mean we can't get stuck on an infinite loop trying to complete tasks we have already determined
+# can't be fixed."
+#
+# Two cases and only one of them is a label. **Won't fix** is a decision, and GitHub closes an issue
+# `--reason "not planned"` natively: it leaves the open queue on its own, shows a different icon, and
+# needs nothing here at all. That is the right route and the skill says so.
+#
+# **Can't fix yet** is different: the work is real, it is blocked on something outside the
+# repository, and closing it would lose it. It stays open, wears a label, and is skipped — the same
+# treatment as `needs-hands`, for the same reason. A queue that hands back a known-impossible task
+# every time it comes round is a queue somebody stops reading.
+STUCK_LABELS = {l.strip() for l in os.environ.get(
+    "TASK_STUCK_LABELS", "cant-fix,wont-fix,blocked").split(",") if l.strip()}
+
 
 class FileTasks:
     """The default: a JSON file in the repository root, read in about a millisecond."""
@@ -175,6 +201,8 @@ class IssueTasks:
                 # who asked for it, which GitHub already knows better than we could
                 "by": (issue.get("author") or {}).get("login", "?"),
                 "was_red": any(l["name"] == RED_LABEL for l in issue.get("labels", [])),
+                "needs_hands": any(l["name"] == HANDS_LABEL for l in issue.get("labels", [])),
+                "stuck": sorted({l["name"] for l in issue.get("labels", [])} & STUCK_LABELS),
                 "parent": (issue.get("parent") or {}).get("number"),
                 "blocked_by": [int(n) for n in BLOCKED_BY.findall(body)],
                 "done": None,
@@ -183,6 +211,10 @@ class IssueTasks:
         open_now = {t["id"] for t in out}
         for t in out:
             t["waiting_on"] = [n for n in t["blocked_by"] if n in open_now]
+            if t["needs_hands"]:
+                t["waiting_on"] = t["waiting_on"] + ["somebody with hands"]
+            if t["stuck"]:
+                t["waiting_on"] = t["waiting_on"] + t["stuck"]
         if after is not None:
             out.sort(key=lambda t: (t.get("parent") != after, t["id"]))
         return out
