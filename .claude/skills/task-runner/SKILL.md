@@ -394,6 +394,38 @@ not an observation about who can do the work. Reach for it only when the task sh
 anybody. If there is any doubt, label it and leave it open: an issue nobody can find again is worse
 than one that sits in the list with a reason attached.
 
+## Touching the tracker
+
+**Never hand-write a `gh` command or a GraphQL mutation. Ask for the operation by name.**
+
+    task.py list                      what is outstanding, and what each is waiting on
+    task.py show <id>                 one task, with everything written on it since
+    task.py add "<text>" [--check C]  a task with no parent: a hole found next door
+    task.py split <id> "<text>"       the REMAINDER of that job, as a sub-issue of it
+    task.py block <id> <on>           <id> cannot start until <on> is finished
+    task.py label <id> +a -b          put a state on it, or take one off
+    task.py done <id> [--check C]     finished; refuses if a label says it is waiting
+    task.py reopen <id> "<why>"       un-close something that should not have been
+    task.py say <id> "<text>"         write on it, once per distinct thing said
+
+Chris, 13 September 2026: *"If we mechanically give claude these commands, it'll make the quality of
+the responses higher since we don't rely on the agent to think of what to run. They ask for a
+command, they are given a command, they execute the command exactly as given."*
+
+The evidence is a day of getting it wrong by hand. In one session the model invented a GraphQL field
+that does not exist (`blockedByIssueId`; it is `blockingIssueId`), read an array length off an
+object and got the count of its keys, broke a query with an embedded newline, wrote a zsh loop that
+did not split because zsh does not word-split unquoted variables, and filed four issues with raw
+`gh` instead of these calls — so they are missing from the run record entirely.
+
+Five faults, none of them interesting. The point is not that the model cannot write `gh` commands:
+it is that writing them *again each time* makes every one a fresh chance to be subtly different, and
+subtly different is the kind of wrong that still returns a plausible answer.
+
+`split` and `add` are deliberately two commands. A remainder is a child of the job it came out of
+and the loop takes children first; a hole found next door is nobody's child, and filing it as one
+claims a relationship that does not exist *and* jumps it up the queue on the strength of it.
+
 ## Stopping it
 
 - An empty list ends the loop on its own: that is what done looks like.

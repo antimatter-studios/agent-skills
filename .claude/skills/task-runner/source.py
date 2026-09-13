@@ -108,6 +108,33 @@ class FileTasks:
             t["waiting_on"] = [n for n in t.get("blocked_by", []) if n in still_open]
         return out
 
+    def add(self, what, check=None, labels=()):
+        """A task with no parent: something found next door that belongs to nobody's job."""
+        data = self._read()
+        tasks = data.setdefault("tasks", [])
+        made = max((t.get("id", 0) for t in tasks), default=0) + 1
+        tasks.append({"id": made, "what": what, "by": "model", "check": check, "done": None})
+        self._write(data)
+        return made
+
+    def label(self, task, add=(), remove=()):
+        """A file has no labels, so the states live in a field of their own."""
+        data = self._read()
+        for t in data.get("tasks", []):
+            if t.get("id") == task["id"]:
+                now = set(t.get("labels", [])) | set(add)
+                t["labels"] = sorted(now - set(remove))
+        self._write(data)
+
+    def reopen(self, task, why=""):
+        """Un-finish something that was marked done and should not have been."""
+        data = self._read()
+        for t in data.get("tasks", []):
+            if t.get("id") == task["id"]:
+                t["done"] = None
+                t.pop("unverified", None)
+        self._write(data)
+
     def said(self, task):
         """What has been said on this task since it was written.
 
@@ -306,6 +333,44 @@ class IssueTasks:
         if not born:
             return
         self._adopt(task["id"], int(born.group(1)))
+
+    def add(self, what, check=None, labels=()):
+        """A task with no parent: a hole found next door, which belongs to nobody's job.
+
+        `insert_after` is for the REMAINDER of a job and makes a sub-issue. This is the other case,
+        and they must not be the same call: a hole filed as somebody's child claims a relationship
+        that does not exist, and the loop takes children first — so an unrelated task would jump the
+        queue on the strength of a wrong parent.
+        """
+        body = what + ("" if not check else f"\n\n<!-- check: {check} -->\n")
+        names = [LABEL] + ([RED_LABEL] if check else []) + list(labels)
+        made = self._gh("issue", "create", "--label", ",".join(names),
+                        "--title", what.split("\n")[0][:120], "--body", body)
+        if made.returncode != 0:
+            return None
+        born = re.search(r"/issues/(\d+)", made.stdout or "")
+        return int(born.group(1)) if born else None
+
+    def label(self, task, add=(), remove=()):
+        """Put a state on a task or take one off. See STUCK_LABELS for what they mean."""
+        args = ["issue", "edit", str(task["id"])]
+        for name in add:
+            args += ["--add-label", name]
+        for name in remove:
+            args += ["--remove-label", name]
+        if len(args) > 3:
+            self._gh(*args)
+
+    def reopen(self, task, why=""):
+        """Un-close something that should not have been closed, saying why on the issue itself.
+
+        Needed the day `mark_done` closed a task that was labelled for a person to answer. A reopen
+        with no reason on it is a state change nobody can account for six months later.
+        """
+        args = ["issue", "reopen", str(task["id"])]
+        if why:
+            args += ["--comment", why]
+        self._gh(*args)
 
     def said(self, task):
         """Everything written on this task since, oldest first.

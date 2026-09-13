@@ -136,4 +136,40 @@ if "STUCK_LABELS" not in body and "stuck" not in body:
     sys.exit(1)
 '
 
+check "every way of touching the tracker is a command, not a thing to compose" run '
+import ast, pathlib, sys
+here = pathlib.Path(sys.argv[1])
+tree = ast.parse((here / "source.py").read_text())
+classes = {n.name: {i.name for i in n.body if isinstance(i, ast.FunctionDef)}
+           for n in tree.body if isinstance(n, ast.ClassDef)}
+wanted = {"tasks", "said", "add", "insert_after", "block", "label", "done_or_not", "reopen", "say"}
+wanted = wanted - {"done_or_not"} | {"mark_done"}
+for name in ("FileTasks", "IssueTasks"):
+    missing = wanted - classes.get(name, set())
+    if missing:
+        print(f"{name} cannot: {sorted(missing)}")
+        sys.exit(1)
+cli = (here / "task.py").read_text()
+for verb in ("list", "show", "add", "split", "block", "label", "done", "reopen", "say"):
+    if "what == " + chr(34) + verb + chr(34) not in cli:
+        print(f"task.py has no {verb} command, so it will be written by hand instead")
+        sys.exit(1)
+'
+
+check "filing a hole is not the same call as filing a remainder" run '
+import ast, pathlib, sys
+src = (pathlib.Path(sys.argv[1]) / "source.py").read_text()
+tree = ast.parse(src)
+for node in ast.walk(tree):
+    if isinstance(node, ast.ClassDef) and node.name == "IssueTasks":
+        add = next((i for i in node.body if isinstance(i, ast.FunctionDef) and i.name == "add"), None)
+        if add is None:
+            print("no add(): a hole would have to be filed as somebody child")
+            sys.exit(1)
+        body = ast.get_source_segment(src, add)
+        if "addSubIssue" in body or "_adopt" in body:
+            print("add() makes a child, which claims a relationship that does not exist")
+            sys.exit(1)
+'
+
 exit $((fails > 0))
