@@ -9,6 +9,25 @@ from pathlib import Path
 
 LIST = Path(".task-list.json")
 
+# A file that turns up in a repository root should say what it is. Anybody who checks this out and
+# finds it has no other way to know, and "it is a queue a hook reads" is two lines.
+DESCRIPTION = [
+    "Work waiting to be done, in order. A Stop hook reads this and will not let a turn end while",
+    "anything here is unfinished: it verifies the task in hand, takes any remaining work as new",
+    "tasks inserted below it, then hands out the next one.",
+    "",
+    "`what` is the whole brief — the hook reads it out and the model gets nothing else.",
+    "`check` is a shell command whose exit code decides whether the task is done; it must FAIL when",
+    "the task is written, or it is not evidence of anything. `by` says who asked for the task.",
+    "",
+    "Commit this. It is the queue, and somebody else picking the repo up can see what is waiting.",
+    "The run's own bookkeeping — which task was handed out, when, against which commit — lives in",
+    ".git/task-runner.json instead, because it changes every turn and belongs to the machine doing",
+    "the run rather than to the work.",
+    "",
+    "Added by: ~/.claude/skills/task-runner/add.py",
+]
+
 
 def main():
     # who is asking. A check written by the person who wants the work is a specification; a check
@@ -34,7 +53,7 @@ def main():
         print('usage: add.py "what has to be true when this is done"', file=sys.stderr)
         sys.exit(1)
 
-    data = {"tasks": []}
+    data = {"_description": DESCRIPTION, "tasks": []}
     if LIST.exists():
         try:
             data = json.loads(LIST.read_text(encoding="utf-8"))
@@ -77,6 +96,7 @@ def main():
             )
             sys.exit(1)
 
+    data.setdefault("_description", DESCRIPTION)
     tasks = data.setdefault("tasks", [])
     task = {
         "id": max((t.get("id", 0) for t in tasks), default=0) + 1,
@@ -87,8 +107,6 @@ def main():
         # --anyway, and the reader should know the red step did not happen
         "was_red": bool(check) and "--anyway" not in sys.argv,
         "added": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "handed": None,
-        "at": None,
         "done": None,
     }
     # `--after N` puts it directly below task N, which is how remainder work stays next to the job
