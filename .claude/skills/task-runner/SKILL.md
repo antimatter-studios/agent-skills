@@ -20,6 +20,31 @@ not end.
 It cannot tell work from the appearance of work. It makes **stopping hard**; it does not make the
 work good. Every claim below should be read against that.
 
+And the sharper version, from the conversation this came out of — Chris, 13 September 2026:
+
+> *"right now you're telling me tasks are done and I'm not reading the code to verify it, I'm just
+> play testing it and we're going through it together. So you're already marking your own
+> homework."*
+
+Correct, and a `check` does not change it much, because the model usually writes the check too. What
+is worth knowing is which evidence has ever actually caught anything.
+
+On the night this was written, a suite of 2,611 passing tests — nearly all of them written by the
+model — caught **none** of the four worst faults in the codebase: a chunk-worker leak that stopped
+the ground being painted at all, every mountain in the world having a radius of nought, a village
+re-lived from its founding dating its farms wrong, and an entire injury system with no caller.
+
+What caught them:
+
+- **benches that are built to fail**, and did, repeatedly — an economy audit and a believability
+  bench that went red on three separate features and forced real changes each time
+- **a fingerprint of the world**, which caught a generation change within the hour
+- **measurement** — counting which way a fallback went, reading a debug line under a screenshot
+- **the person**, playtesting, asking questions, and rejecting two designs outright
+
+A test that has never been seen to fail is a test with no evidence behind it. Prefer the kinds of
+check that have a record of going red.
+
 ## The two guards
 
 **Verify.** The turn ends with a task in hand. The hook does not advance. It runs that task's
