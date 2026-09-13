@@ -183,9 +183,11 @@ def main():
                     " part is blocked and on what.",
                 ])
         else:
-            store.mark_done(held, now())      # no check: the model's word, and the file says so
+            # no check: the model's word, and the store says so where a reader will see it
+            store.mark_done(held, now(), verified=False)
 
-    following = next((t for t in store.tasks() if not run(t).get("handed") or t is held), None)
+    following = next((t for t in store.tasks(after=held["id"] if held else None)
+                      if not run(t).get("handed") or t is held), None)
     if following is None:
         STATE.unlink(missing_ok=True)
         sys.exit(0)                                  # the list is empty: this is what done looks like

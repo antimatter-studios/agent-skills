@@ -94,7 +94,12 @@ the context gone. A stack, not a queue.
 
 ## Where the work is kept
 
-**GitHub issues, wherever they can be reached.** Open issues labelled `task-runner` are the queue,
+**GitHub issues when the remote is GitHub**, decided by reading `git remote -v` for `github.com`
+rather than by asking whether GitHub answered just now. The difference matters: a check that needs
+auth and a network fails the wrong way, and on a GitHub repository with `gh` logged out it would
+quietly start a private list beside a public tracker. The remote is a statement of intent, it is
+instant, and it is true on a train; if `gh` then cannot be reached, that is worth saying out loud
+rather than going quiet and local. Open issues labelled `task-runner` are the queue,
 in number order; closing one is done; remainder work is opened as a new issue cross-referenced to
 its parent. Issues have no custom fields — only Projects v2 does — so a check travels in the body as
 an HTML comment, invisible when rendered and trivial to parse:
@@ -113,6 +118,29 @@ Either way, the **run's own bookkeeping** lives in `.git/task-runner.json`: whic
 out, when it was asked about, what HEAD was at the time, how many times the loop has bounced. It
 changes every turn and belongs to the machine doing the run. Under `.git/`, so it needs no
 `.gitignore` entry and is removed when the queue empties.
+
+### How each field maps
+
+Most of it lands on something GitHub already has, which is the test of whether the mapping is real
+or invented:
+
+| the task's | on an issue | |
+|---|---|---|
+| `id` | issue **number** | a stable identity already |
+| `what` | **title and body** | title is the brief, body the detail |
+| `done` | **closed** | canonical; nothing to invent |
+| `by` | issue **author** | GitHub knows this better than we could |
+| `check` | `<!-- check: … -->` in the body | no native field; invisible when rendered |
+| `was_red` | label **`check-was-red`** | visible at a glance and queryable |
+| ticked with no check | **closing comment** saying so | a state cannot carry *why* |
+| `handed`, `asked`, `at` | nothing — stays in `.git/` | belongs to the run, not to the repository |
+
+**The one that does not map is order.** Issue numbers are creation order, so splitting task 5 opens
+issue 31, and 31 sorts last — the remainder of a job would come back after everything else with its
+context gone, which is precisely what "insert below" exists to prevent. No ordering field is needed
+to fix it: a remainder issue says `Split out of #5` in its body, which the hook writes and a reader
+wants there anyway, so an issue that came out of the task just finished goes to the front. Depth
+first, expressed in the only thing issues have, which is words.
 
 ### Why issues, given a file is faster
 
