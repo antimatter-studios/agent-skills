@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# agentlock — who is working in which worktree, and whether anything would be lost by removing one.
+#
+#   agentlock claim "rebasing the edge stack"   take this worktree
+#   agentlock release                           give it back
+#   agentlock list                              every worktree, with its owner and state
+#   agentlock show                              who holds this one
+#
+# Driven through `chore` rather than installed as a git subcommand, and that was a correction rather
+# than a preference: the first version shipped `git worktrees`, one letter from git's own
+# `git worktree`, so a typo of the built-in silently ran something else. Adjacent names for adjacent
+# jobs is how a tool gets used by accident.
+#
+# Advisory throughout. It explains worktrees; it protects none and removes none.
+set -euo pipefail
+
+LOCK=.agentlock
+
+die() { printf '%s\n' "$*" >&2; exit 1; }
+root() { git rev-parse --show-toplevel 2>/dev/null || die 'not inside a git worktree'; }
+
+whoami_agent() {
+  if [ -n "${AGENT_LOCK_NAME:-}" ]; then printf '%s' "$AGENT_LOCK_NAME"; return; fi
+  # The fallback exists to be distinguishing, not decorative, and its order was settled by a bug:
+  # the first version used `hostname -s`, which on one host answers `Unknown`, so every unnamed
+  # agent claimed its worktree as `Unknown[pid]` and a sweep showed several rows that looked like
+  # one agent and were not. A tmux pane id differs between two agents on a machine and outlives the
+  # process, so it goes first.
+  local who where
+  who=${USER:-$(id -un 2>/dev/null || echo someone)}
+  where=${TMUX_PANE:-}
+  [ -n "$where" ] || { where=$(basename "$(tty 2>/dev/null || echo '')" 2>/dev/null); case "$where" in not*) where='' ;; esac; }
+  [ -n "$where" ] || where=$(hostname -s 2>/dev/null)
+  [ -n "$where" ] || where=local
+  printf '%s@%s[%s]' "$who" "$where" "$$"
+}
+
+age_of() {
+  local when=$1 secs now d
+  now=$(date -u '+%s')
+  if [ -f "$when" ]; then
+    secs=$(stat -f '%m' "$when" 2>/dev/null || stat -c '%Y' "$when" 2>/dev/null || echo "$now")
+  else
+    secs=$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$when" '+%s' 2>/dev/null \
+        || date -u -d "$when" '+%s' 2>/dev/null || echo "$now")
+  fi
+  d=$(( (now - secs) / 60 ))
+  if   [ "$d" -lt 60   ]; then printf '%dm' "$d"
+  elif [ "$d" -lt 1440 ]; then printf '%dh' $((d / 60))
+  else                         printf '%dd' $((d / 1440)); fi
+}
+
+list() {
+  local here; here=$(git rev-parse --show-toplevel)
+  printf '%-46s %-30s %-20s %-5s %s\n' PATH BRANCH OWNER AGE STATE
+  git worktree list --porcelain | awk '
+    /^worktree /{ path=substr($0,10) }
+    /^branch /  { br=substr($0,8); sub("refs/heads/","",br) }
+    /^detached/ { br="(detached)" }
+    /^locked/   { lk=1 }
+    /^$/        { if (path) print path "\t" (br?br:"?") "\t" (lk?"locked":""); path=""; br=""; lk=0 }
+    END         { if (path) print path "\t" (br?br:"?") "\t" (lk?"locked":"") }
+  ' | while IFS=$'\t' read -r path branch locked; do
+    [ -d "$path" ] || { printf '%-46s %-30s %-20s %-5s %s\n' "$path" "$branch" '-' '-' 'MISSING'; continue; }
+    local owner='-' age='-' since dirty state show
+    if [ -f "$path/$LOCK" ]; then
+      owner=$(sed -n 's/^agent: //p' "$path/$LOCK" | head -1)
+      since=$(sed -n 's/^since: //p' "$path/$LOCK" | head -1)
+      age=$(age_of "${since:-$path/$LOCK}")
+    fi
+    dirty=$(git -C "$path" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+    state=''
+    [ "$dirty" != '0' ] && state="dirty($dirty)"
+    [ -n "$locked" ]    && state="${state:+$state, }locked"
+    [ "$owner" != '-' ] && state="${state:+$state, }held"
+    [ -z "$state" ]     && state='free'
+    show=$path
+    case "$path" in "$here") show='.' ;; "$here"/*) show=".${path#"$here"}" ;; "$HOME"/*) show="~${path#"$HOME"}" ;; esac
+    [ ${#show} -gt 46 ] && show="${show:0:18}...${show: -25}"
+    printf '%-46s %-30s %-20s %-5s %s\n' "$show" "$branch" "$owner" "$age" "$state"
+  done
+}
+
+cmd=${1:-list}
+shift || true
+
+case "$cmd" in
+  claim)
+    dir=$(root); as=''
+    [ "${1:-}" = '--as' ] && { as=${2:-}; shift 2 || true; }
+    [ -n "$as" ] || as=$(whoami_agent)
+    doing=${*:-}
+    branch=$(git -C "$dir" symbolic-ref --short HEAD 2>/dev/null || echo detached)
+    if [ -f "$dir/$LOCK" ]; then
+      held=$(sed -n 's/^agent: //p' "$dir/$LOCK" | head -1)
+      [ "$held" = "$as" ] || printf 'note: %s already claims this worktree; replacing\n' "$held" >&2
+    fi
+    { printf 'agent: %s\n' "$as"
+      printf 'branch: %s\n' "$branch"
+      printf 'since: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+      [ -n "$doing" ] && printf 'doing: %s\n' "$doing"
+    } > "$dir/$LOCK"
+    printf 'claimed %s as %s\n' "$dir" "$as" ;;
+  release)
+    dir=$(root)
+    [ -f "$dir/$LOCK" ] || die "no $LOCK in $dir"
+    rm -f "$dir/$LOCK"; printf 'released %s\n' "$dir" ;;
+  show)
+    dir=$(root)
+    [ -f "$dir/$LOCK" ] || { printf 'unclaimed: %s\n' "$dir"; exit 0; }
+    cat "$dir/$LOCK" ;;
+  list) list ;;
+  *) die 'usage: agentlock claim [--as NAME] ["what you are doing"] | release | show | list' ;;
+esac
