@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# git agentlock — say which agent is working in this worktree.
+#
+# A worktree tells you its branch and whether it is dirty, but never who made it or why. That is
+# fine until several agents share a repository, and then a sweep of "finished" worktrees is a guess.
+# This writes one advisory file, .agentlock, at the worktree root. It is ignored globally rather
+# than per project (see ~/.config/git/ignore), so no repository has to be changed to adopt it.
+#
+#   git agentlock claim "rebasing the edge stack"   # take this worktree
+#   git agentlock release                           # give it back
+#   git agentlock show                              # who holds it
+#
+# The owner's name defaults to $AGENT_LOCK_NAME, so a session can export it once and forget it.
+# Advisory only: it explains a worktree, it never protects one. Nothing here refuses to run because
+# somebody else holds a lock — that judgement belongs to whoever is reading.
+set -euo pipefail
+
+LOCK=.agentlock
+
+die() { printf '%s\n' "$*" >&2; exit 1; }
+
+root() {
+  git rev-parse --show-toplevel 2>/dev/null || die 'not inside a git worktree'
+}
+
+whoami_agent() {
+  if [ -n "${AGENT_LOCK_NAME:-}" ]; then printf '%s' "$AGENT_LOCK_NAME"; return; fi
+  # No name given and none in the environment. The fallback has to be *distinguishing*, which the
+  # first version was not: `hostname -s` is empty on a host that offers no short name, so every
+  # unnamed agent claimed its worktree as `Unknown[pid]` and a sweep found several rows that looked
+  # like one agent and were not. Found by the session next door on its first claim.
+  #
+  # So: the terminal this is running in, which differs per session and survives the process, then
+  # the user, then the host — and the pid last rather than first, because a pid is the part that is
+  # least recognisable to somebody reading a list of them a day later.
+  local who where
+  who=${USER:-$(id -un 2>/dev/null || echo someone)}
+  # A tmux pane id is the best distinguisher available without being told: it is stable for the life
+  # of the session, differs between two agents on the same host, and survives this process. A tty is
+  # the next best. The hostname is last and is often useless — this host answers `Unknown`.
+  where=${TMUX_PANE:-}
+  [ -n "$where" ] || { where=$(basename "$(tty 2>/dev/null || echo '')" 2>/dev/null); case "$where" in not*) where='' ;; esac; }
+  [ -n "$where" ] || where=$(hostname -s 2>/dev/null)
+  [ -n "$where" ] || where=local
+  printf '%s@%s[%s]' "$who" "$where" "$$"
+}
+
+cmd=${1:-show}
+shift || true
+
+case "$cmd" in
+  claim)
+    dir=$(root)
+    as=""
+    if [ "${1:-}" = "--as" ]; then as=${2:-}; shift 2 || true; fi
+    [ -n "$as" ] || as=$(whoami_agent)
+    doing=${*:-}
+    branch=$(git -C "$dir" symbolic-ref --short HEAD 2>/dev/null || echo 'detached')
+    if [ -f "$dir/$LOCK" ]; then
+      held=$(sed -n 's/^agent: //p' "$dir/$LOCK" | head -1)
+      [ "$held" = "$as" ] || printf 'note: %s already claims this worktree; replacing\n' "$held" >&2
+    fi
+    {
+      printf 'agent: %s\n' "$as"
+      printf 'branch: %s\n' "$branch"
+      printf 'since: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+      [ -n "$doing" ] && printf 'doing: %s\n' "$doing"
+    } > "$dir/$LOCK"
+    printf 'claimed %s as %s\n' "$dir" "$as"
+    ;;
+  release)
+    dir=$(root)
+    [ -f "$dir/$LOCK" ] || die "no $LOCK in $dir"
+    rm -f "$dir/$LOCK"
+    printf 'released %s\n' "$dir"
+    ;;
+  show)
+    dir=$(root)
+    [ -f "$dir/$LOCK" ] || { printf 'unclaimed: %s\n' "$dir"; exit 0; }
+    cat "$dir/$LOCK"
+    ;;
+  *)
+    die 'usage: git agentlock claim [--as NAME] ["what you are doing"] | release | show'
+    ;;
+esac
