@@ -1,6 +1,6 @@
 ---
 name: agentlock
-description: Advisory worktree ownership for repositories several agents share. Adds `chore worktrees`, `chore claim` and `chore unclaim`, which record who is working in a worktree and why, and list every worktree with its owner, age and whether anything would be lost by removing it. Use when agents share a checkout, when worktrees have accumulated and somebody needs to know which are abandoned, before removing or reusing any worktree, or when the user asks about agentlock, worktree ownership, stale worktrees, or who is working where.
+description: Advisory worktree ownership for repositories several agents share. Installs a script into the project and adds `chore worktrees`, `chore claim` and `chore unclaim`, which record who is working in a worktree and why, and list every worktree with its owner, age and whether anything would be lost by removing it. Use when agents share a checkout, when worktrees have accumulated and somebody needs to know which are abandoned, before removing or reusing any worktree, or when the user asks about agentlock, worktree ownership, stale worktrees, or who is working where.
 user-invocable: true
 ---
 
@@ -79,20 +79,25 @@ So the verbs live where a project's other verbs already live. `chore worktrees`
 sits beside `chore check` and `chore release` and reads as one of them, which is
 the point.
 
-## The ignore line is global, not per project
+## Everything lives in the project
 
-`.agentlock` goes in the **global** excludes file:
+The script is `tools/agentlock` in the repository that uses it, `chores.yml`
+calls it by relative path, and `.agentlock` goes in that repository's own
+`.gitignore`. Nothing is installed on a machine and nothing is added to a global
+config.
 
-```
-~/.config/git/ignore          # git reads this by default when core.excludesFile is unset
-```
+An earlier version did the opposite — a binary on `PATH`, the ignore line in
+`~/.config/git/ignore` — reasoning that a line per project means a commit per
+project, and for a protected default branch a pull request per project. That
+reasoning solved a per-project problem by changing somebody's machine. Every
+project that would adopt this already has a task runner and a `.gitignore`;
+nothing here needs to be true of the operator. A tool that quietly puts itself on
+somebody's `PATH` to save them a commit has decided that its convenience outranks
+their control of their own system, and the cost lands on whoever later wonders
+where the command came from.
 
-A line in each project's `.gitignore` is a commit per project — and for a
-repository with a protected default branch, a pull request per project, with a
-review and a CI run, to adopt a convention that has not proved itself. One line
-per machine covers every repository, present and future. The trade is that the
-rule does not travel with a clone, which is the same deal `github-guard` makes
-about its hooks and for the same reason: these are per-operator facts.
+Adopting it is one commit in one repository, which is also how you find out
+whether anybody wanted it.
 
 ## Naming
 
@@ -129,27 +134,28 @@ protection it does not offer.
 ## Install
 
 ```bash
-./install.sh            # copies `agentlock` to ~/.local/bin, adds the global ignore line
+./install.sh /path/to/repo      # default: the current repository
 ```
 
-Then add the three tasks to a project's `chores.yml` — `install.sh --tasks`
-prints them:
+It copies the script to `tools/agentlock`, adds `.agentlock` to that
+repository's `.gitignore`, and prints the tasks to add to `chores.yml`
+(`install.sh --tasks` prints just those):
 
 ```yaml
   worktrees:
     desc: Every worktree of this repository, with who holds it and what it would cost to remove
-    cmds: ['agentlock list']
+    cmds: ['tools/agentlock list']
 
   claim:
     desc: Say this worktree is yours, and what you are doing in it
     args:
       - name: doing
         desc: one line about the work
-    cmds: ['agentlock claim "{{.DOING}}"']
+    cmds: ['tools/agentlock claim "{{.DOING}}"']
 
   unclaim:
     desc: Give this worktree back
-    cmds: ['agentlock release']
+    cmds: ['tools/agentlock release']
 ```
 
 `unclaim` rather than `release`, because a project that ships software already
