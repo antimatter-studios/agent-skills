@@ -19,7 +19,12 @@ while IFS= read -r path; do
   if git check-attr filter -- "$path" 2>/dev/null | grep -q ': filter: lfs$'; then
     continue
   fi
-  sz=$(stat -f '%z' "$path" 2>/dev/null || stat -c '%s' "$path" 2>/dev/null || echo 0)
+  # `wc -c`, not stat. BSD reads `stat -f '%z'` as the size, but GNU reads
+  # `stat -f` as FILESYSTEM status and succeeds, so the old BSD-first chain got
+  # a multi-line filesystem report on Linux, `[ -gt ]` errored, and no file was
+  # ever blocked there. wc takes the size from fstat for a regular file on both.
+  sz=$(wc -c < "$path" 2>/dev/null | tr -d ' ') || sz=0
+  case "$sz" in ''|*[!0-9]*) sz=0 ;; esac
   if [ "$sz" -gt "$max_bytes" ]; then
     mb=$(( sz / 1024 / 1024 ))
     echo "git-block-large-files: '$path' is ${mb} MiB (limit ${max_mb} MiB)." >&2
