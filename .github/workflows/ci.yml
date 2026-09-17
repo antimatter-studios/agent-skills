@@ -132,9 +132,21 @@ jobs:
         id: automerge
         uses: ./.github/actions/auto-merge
 
+      # invalid is right only while the default branch's .github-guard is not
+      # yet a file — the pull request that introduces the file is checked
+      # against a main that still has the old directory. It is accepted then and
+      # nowhere else, so a genuinely unreadable file on main still fails here.
       - name: ...reports a skip here
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          case '${{ steps.automerge.outputs.result }}' in
-            skipped:not-declared|skipped:fork|skipped:event|skipped:base) echo "auto-merge action wired: ${{ steps.automerge.outputs.result }}" ;;
-            *) echo "unexpected auto-merge result: '${{ steps.automerge.outputs.result }}'"; exit 1 ;;
+          result='${{ steps.automerge.outputs.result }}'
+          case "$result" in
+            skipped:not-declared|skipped:fork|skipped:event|skipped:base) echo "auto-merge action wired: $result" ;;
+            skipped:invalid)
+              kind=$(gh api "repos/${{ github.repository }}/contents/.github-guard?ref=${{ github.event.repository.default_branch }}" \
+                --jq 'if type == "array" then "dir" else .type end' 2>/dev/null || echo missing)
+              [ "$kind" != file ] || { echo "unexpected auto-merge result: '$result' with a .github-guard file on the default branch"; exit 1; }
+              echo "auto-merge action wired: $result (the default branch has no .github-guard file yet: $kind)" ;;
+            *) echo "unexpected auto-merge result: '$result'"; exit 1 ;;
           esac
