@@ -52,11 +52,26 @@ hooks_path_unset() {
                 || bad "core.hooksPath should be unset ($2), got '$got'"
 }
 
-# GNU stat first, then BSD — NOT the other way round: on GNU, `stat -f` means
-# "file system status", so it SUCCEEDS and prints an inode table instead of a
-# mode, and a `||` fallback never fires. That reported `want 644, got <fs dump>`
-# on the first Linux run of this suite.
-file_mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null; }
+# The permission bits as three octal digits, read from `ls -ld`, which prints
+# the same `-rwxr-xr-x` string on every platform. Not stat: GNU and BSD `stat`
+# take different flags, and GNU reads `stat -f` as FILE SYSTEM status, succeeds,
+# and prints an inode table, so a `||` chain in the wrong order never falls back.
+# That reported `want 644, got <fs dump>` on the first Linux run of this suite.
+# One command for every platform means no order to get wrong. Any trailing
+# ACL/xattr marker (`+`, `@`, `.`) is outside the nine characters read.
+file_mode() {
+  ls -ld "$1" 2>/dev/null | awk '{
+    p = substr($1, 2, 9); out = ""
+    for (i = 0; i < 3; i++) {
+      d = 0; t = substr(p, i * 3 + 1, 3)
+      if (substr(t, 1, 1) == "r") d += 4
+      if (substr(t, 2, 1) == "w") d += 2
+      x = substr(t, 3, 1); if (x == "x" || x == "s" || x == "t") d += 1
+      out = out d
+    }
+    print out
+  }'
+}
 same_mode()   { got=$(file_mode "$1"); [ "$got" = "$2" ] \
                 && ok "$3 kept mode $2" || bad "$3 changed mode (want $2, got $got)"; }
 
