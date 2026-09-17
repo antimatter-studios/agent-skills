@@ -14,6 +14,7 @@ each guard is a single-purpose script you drop in or delete.
 .git/hooks/                  # per-clone, OUTSIDE the working tree: no branch can rewrite it
   pre-commit                 # dispatcher → runs pre-commit.d/* in order
   pre-commit.d/
+    github-auto-merge.sh
     github-merge-squash-only.sh
     github-protect-main.sh
     rust-fmt.sh
@@ -24,29 +25,25 @@ each guard is a single-purpose script you drop in or delete.
   lib/common.sh  lib/run-guards.sh
   …documented stubs for every other safe client-side hook (no-op until you add guards)
 
-.github-guard/               # the only github-guard files still IN the repo —
-  required-checks            #   DECLARATIONS, read as data, never executed
-  private-paths              # optional: paths that must not be committed
-  generated-paths            # optional: machine output, normalised not blocked
+.github-guard                # the only github-guard file IN the repo: DECLARATIONS,
+                             #   git-config format, read as data, never executed
 ```
 
-Those three are facts about the **repository**, which is why they are tracked
-rather than per-clone config: `required-checks` decides what branch protection
-requires for everyone (and is read from the server, never the working tree);
-`private-paths` has to travel, or a fresh clone has no wall at all; and which
-directories hold generated output is the same for whoever commits. The
-directory is deliberately NOT called `.githooks/` — nothing in the working tree
-runs, and a name saying "hooks" invites an executable that will be ignored in
-silence. The old `.githooks/<file>` is still read, with a notice naming the
-move.
+The declarations are facts about the **repository**, which is why they are
+tracked rather than per-clone config: `checks.required` decides what branch
+protection requires for everyone and `merge.auto` whether a pull request may
+merge unattended (both read from the server, never the working tree);
+`paths.private` has to travel, or a fresh clone has no wall at all; and which
+directories hold generated output is the same for whoever commits. See
+[The `.github-guard` file](#the-github-guard-file).
 
 **Where the hooks live, and why it matters.** Git resolves a hook path when it
 runs the hook — for a checkout, *after* the working tree has been rewritten. An
 in-tree hooks directory reached via `core.hooksPath` therefore lets any branch
 you check out replace the hook that runs next, with your credentials and your
 gh token. So `install.sh` writes into `<repo>/.git/hooks` and CLEARS
-`core.hooksPath`. `required-checks` is the exception that stays in the tree: it
-is data, not code, and `github-protect-main` reads it from the default branch on
+`core.hooksPath`. `.github-guard` is the exception that stays in the tree: it
+is data, not code, and its privileged half is read from the default branch on
 the **server**, never from the checkout.
 
 **Naming:** guards are `<topic>-<name>.sh`. The topic prefix groups them and
@@ -66,6 +63,10 @@ self-selecting at runtime — no per-project config.
   noise once it lands, and the squash message is written deliberately instead of
   composed by GitHub from whatever the commits happened to say. Squash locally first
   when a branch is messy, so that message is yours. Owner-only; never blocks.
+- **`github-auto-merge`** (pre-commit, fail-open) — keeps the repo's *Allow
+  auto-merge* setting in line with `merge.auto` in `.github-guard` on the default
+  branch, and **refuses to enable it** while that branch requires no status
+  checks. Owner-only; never blocks. See [Auto-merge](#auto-merge-mergeauto).
 - **`github-protect-main`** (pre-commit, fail-open) — protects the default
   branch: require a PR, enforced for admins, linear history, no force-push or
   deletion. Owner-only; never blocks. Also keeps **required status checks** in
@@ -157,7 +158,52 @@ The rust guards run cargo via the **rustup shim** (`~/.cargo/bin/cargo`), so a
 repo's `rust-toolchain.toml` pin is honored and local fmt/clippy/metadata match
 CI — a bare `cargo` may be Homebrew's, which ignores the pin.
 
-## Declaring the required status checks (`.github-guard/required-checks`)
+## The `.github-guard` file
+
+One file at the repository root, in **git-config format** — the syntax of
+`.git/config`, read with `git config -f`, so the guards need nothing beyond the
+git they already run under:
+
+```ini
+# .github-guard — declarations github-guard reads (see the skill's README)
+[checks]
+	required = CI                # repeat the key for more checks; `none` = require none
+[merge]
+	auto = true                  # see Auto-merge
+[paths]
+	private = tmp                # repeat for more
+	generated = frontend/bindings
+```
+
+| key | read from | read by |
+| --- | --- | --- |
+| `checks.required` | the default branch, **on the server** | `github-protect-main` |
+| `merge.auto` | the default branch, **on the server** | `github-auto-merge`, the auto-merge action |
+| `paths.private` | the working tree (or per-clone config) | `git-block-private-paths` |
+| `paths.generated` | the working tree (or per-clone config) | `generated-normalise` |
+
+Syntax rules worth knowing, all git's own:
+
+- **Quote any value containing `#` or `;`.** Both start a comment anywhere
+  outside double quotes, so `required = C# build` declares a check named `C`.
+  Write `required = "C# build"`. Inside quotes, `\"` and `\\` are the escapes.
+- Leading and trailing whitespace is dropped; spaces inside a value are kept
+  (`required = test / ubuntu-latest` is one name).
+- Section and key names are case-insensitive; values are not.
+- A repeated key is a list: every `required =` line adds one check.
+- `[include]` is never followed — the guards always read with `--no-includes`.
+- Check the file with `git config -f .github-guard --list`: it prints every
+  value as the guards will see it, or the line git cannot parse.
+
+**A file git cannot parse is never read as "nothing declared".** For
+`checks.required` and `merge.auto` it is ignored with a warning — protection
+falls back to discovery and the auto-merge setting is left as it is. For
+`paths.private` it **blocks the commit**, since the unreadable file may be the
+one naming the private paths; the guard reads the working-tree file, so fixing
+it clears the block at once. A directory at `.github-guard` (the one-file-per-fact
+layout this replaced) counts as unparseable.
+
+## Declaring the required status checks (`checks.required`)
 
 `github-protect-main` requires status checks **by check-run name**, discovered
 from recent `pull_request` runs. Discovery is additive and self-healing, but it
@@ -176,18 +222,18 @@ conclusion `skipped`, which satisfies protection. Only a workflow that never
 starts is fatal.) The guard heals the matrix-parent case from positive evidence,
 but it cannot see a workflow's path filters from the API.
 
-So a repo can just say what its gate is — an optional, committed file, one
-check-run name per line:
+So a repo can just say what its gate is — one check-run name per `required`:
 
-```
-# .github-guard/required-checks — what must pass before main takes a merge
-CI
+```ini
+# What must pass before main takes a merge
+[checks]
+	required = CI
 ```
 
 - **A declaration wins over discovery, exactly** — it is also the only way to
   *remove* a required check that discovery keeps re-adding.
 - **It is read from the default branch on the server, not the working tree.**
-  The file can strip required checks, and `none` strips them all, so it is a
+  The key can strip required checks, and `none` strips them all, so it is a
   privileged input and must come from a trusted source. This guard runs
   pre-commit against whatever happens to be checked out; reading the working
   tree would let an untrusted branch — a contributor PR pulled down for review —
@@ -195,7 +241,8 @@ CI
   Reading the committed default-branch copy means a policy change only takes
   effect once it is merged. Unreachable (404, offline, no `jq`) falls through to
   discovery — never to "require nothing".
-- **No file → nothing changes** (additive discovery, as before).
+- **No file, or a file with no `[checks]` → nothing changes** (additive
+  discovery, as before).
 - A declared name that has neither passed on the default branch nor is already
   required is **skipped**, and applies the first time it goes green — so a typo
   can't lock the repo. If nothing declared is eligible, the current checks stay.
@@ -204,9 +251,11 @@ CI
   declaration would otherwise drop checks the full declaration never asked to
   remove, leaving a weaker gate than before it was written. The exact
   "declared wins" replace applies only once every declared check is eligible.
-- Empty / comments-only is **ignored with a warning**, never read as "require
-  nothing" — a file blanked mid-edit must not silently unprotect the branch.
-- The single word `none` is the explicit way to require no checks.
+- An empty `required =`, or a `[checks]` section holding only comments, is
+  **ignored with a warning**, never read as "require nothing" — a file blanked
+  mid-edit must not silently unprotect the branch. So is a file git cannot
+  parse, or a directory where the file should be.
+- `required = none` is the explicit way to require no checks.
 
 The idiomatic content is one always-run aggregate job that `needs:` the others:
 
@@ -228,6 +277,81 @@ path-filtered without ever stranding a merge.
 
 `install.sh` never writes into the working tree, so this file is untouched by an
 install or an upgrade.
+
+## Auto-merge (`merge.auto`)
+
+Two halves, because GitHub splits it in two: a repository has to **allow**
+auto-merge, and then each pull request has to **ask** for it.
+
+**The setting — `github-auto-merge` guard.** On each commit it reads `merge.auto`
+from `.github-guard` on the default branch (server copy, like `checks.required`)
+and reconciles the repository's `allow_auto_merge`:
+
+| `merge.auto` | effect |
+| --- | --- |
+| `true` (or `yes`, `on`, `1`) | turned **on** — but only while the default branch requires at least one status check |
+| `false` (or `no`, `off`, `0`) | turned **off** |
+| absent, no file, unreachable | **no change** — the setting is left as whoever set it |
+| not a boolean, unparseable file | no change, with a warning |
+
+**It refuses to enable auto-merge on a branch with no required status checks**
+(or no protection at all), and says so on every commit until that changes. An
+auto-merge request waits for the branch's requirements; with none, the
+requirements are met the moment the PR opens, and the PR merges before CI has
+run. If auto-merge is already on with no required checks, it warns rather than
+switching it off. Because `github-protect-main` sorts after it and is what adds
+the required checks, a freshly guarded repo turns auto-merge on at the
+*second* commit, not the first.
+
+`delete_branch_on_merge` is **not touched**: it is a separate preference with
+its own cost (the branch disappears from under anyone else using it), and
+auto-merge works either way. Set it yourself if you want it.
+
+**The request — the `auto-merge` action.** A composite action in this repository
+that a consumer workflow runs on `pull_request`. It calls
+`gh pr merge --auto --squash` only when **all** of these hold:
+
+- the PR's head is in the **same repository** — a pull request from a fork is
+  never auto-merged (nor is one whose fork has been deleted);
+- the PR targets the **default branch**, whose required checks are what make
+  auto-merge wait — a stacked PR into a feature branch could merge the moment it
+  opened;
+- the PR is not a draft;
+- `.github-guard` **on the default branch** says `merge.auto = true` (read
+  through the API, never from the checkout, so a PR cannot enable auto-merge for
+  itself by editing the file).
+
+Otherwise it logs why and succeeds, with `result` output `skipped:<reason>`. If
+it decided to ask and GitHub refused (the setting is off, the token lacks
+permission), the step **fails**, so a repo that never auto-merges is visible.
+
+The minimal consumer workflow:
+
+```yaml
+# .github/workflows/auto-merge.yml
+name: auto-merge
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: antimatter-studios/agent-skills/.github/actions/auto-merge@<full commit sha> # pin by SHA
+```
+
+No checkout is needed. Pin the action by **full commit SHA**, as with any
+third-party action: it runs with `contents: write`. On `pull_request` from a
+fork GitHub hands the workflow a read-only token anyway; the action refuses
+forks regardless, so `pull_request_target` gains nothing and is not recommended.
+
+A merge made by the default `GITHUB_TOKEN` does **not** trigger `on: push`
+workflows on the default branch. If a release or deploy workflow must run after
+the merge, pass a GitHub App or fine-grained token with the same two permissions
+as `with: github-token: ${{ secrets.… }}`.
 
 ## Release notes from the changelog (CI)
 
@@ -266,21 +390,37 @@ started to diverge from the guard's.
 Two guards act only on paths the repo names, because which directories hold
 unpublishable material or machine output is not something a guard can guess:
 
-```sh
-git config --add github-guard.private-path   tmp        # git-block-private-paths
-git config --add github-guard.generated-path frontend/bindings   # generated-normalise
+```ini
+# .github-guard
+[paths]
+	private = tmp                     # git-block-private-paths
+	private = examples
+	generated = frontend/bindings     # generated-normalise
 ```
 
-…or, in the tree, `.github-guard/private-paths` and `.github-guard/generated-paths` —
-one path per line, `#` for comments. Config wins where both exist.
+…or per clone, with keys that mirror the file's (`[paths] private` is
+`[github-guard "paths"] private` in `.git/config`):
+
+```sh
+git config --add github-guard.paths.private   tmp
+git config --add github-guard.paths.generated frontend/bindings
+```
+
+**Per-clone config wins where both exist**, and replaces the file's list for that
+key rather than adding to it. (These keys were `github-guard.private-path` and
+`github-guard.generated-path`; the guards no longer read those names, and
+`install.sh` rewrites them in a clone's local config — once, saying so — when it
+upgrades that clone.)
 
 Both sources are offered because they answer different needs. Per-clone git
 config cannot be rewritten by a branch, which is the property the whole hooks
-layout exists to get. An in-tree list **travels**, which is what a "do not
-publish this directory" rule actually wants: a fresh clone must inherit it, or
-the wall is only as strong as whoever remembered to configure it. The in-tree
-file is read as **data** — it names paths, is never executed, and a branch that
-edits it can only weaken a guard protecting its own author from an accident.
+layout exists to get. The file **travels**, which is what a "do not publish this
+directory" rule actually wants: a fresh clone must inherit it, or the wall is
+only as strong as whoever remembered to configure it. That is also why these
+keys, unlike `checks.required`, are read from the **working tree**: they must
+work offline, in a clone that has never talked to GitHub. The file is read as
+**data** — it names paths, is never executed, and a branch that edits it can only
+weaken a guard protecting its own author from an accident.
 
 A path matches on whole components: `tmp` blocks `tmp/` and a file named `tmp`,
 and does not block `tmpl/`.
@@ -290,10 +430,21 @@ and does not block `tmpl/`.
 - `tests/protect-main-required-checks.sh [githooks-dir]` — the required-check
   selection. `gh` is stubbed and the branch-protection PUT is captured instead of
   sent, so the assertions are on the checks the guard would actually require.
+- `tests/protect-main-required-checks.sh` also covers the `.github-guard`
+  file itself: the server copy decoded through the guard's own `--jq`, a
+  malformed file and an old directory falling back to discovery, quoting, and
+  `[include]` not being followed.
+- `tests/auto-merge.sh [githooks-dir]` — the `github-auto-merge` guard (enable,
+  **refuse without required checks**, disable, absent = no change, malformed,
+  working tree ignored) and the auto-merge action (same-repo only, forks and
+  deleted forks refused, default-branch base only, drafts, `merge.auto` read
+  from the server, GitHub refusing fails the step). `gh` is stubbed; the PATCH
+  and `gh pr merge` are captured.
 - `tests/install-sh.sh [skill-dir]` — what `install.sh` lands in a target repo
   and what it must leave alone (hooks in `.git/hooks`, `core.hooksPath` cleared,
-  exec bits mirrored from the payload, a repo's own `required-checks` and
-  project-local extra guards untouched). It runs against every recorded project
+  exec bits mirrored from the payload, the repo's `.github-guard` and
+  project-local extra guards untouched), plus the one-time rename of the
+  per-clone path keys and the note naming old-layout declarations. It runs against every recorded project
   on upgrade, so a mistake here is multiplied by the number of guarded repos.
   Its last case is the negative control: a branch carrying a hostile
   `.githooks/pre-commit` is checked out and must not execute — and the case
@@ -308,7 +459,10 @@ and does not block `tmpl/`.
   That is not hypothetical: selecting the chores file with `FNR == NR` made the
   per-file pass inert in every repo that has no chores file, and the guard still
   looked healthy because the existential check kept firing.
-- `tests/language-guards.sh [githooks-dir]` — the per-language guards, with the
+- `tests/language-guards.sh [githooks-dir]` — the path guards' declarations
+  (file, per-clone config and its precedence, quoting, a malformed file blocking
+  `git-block-private-paths` but not `generated-normalise`, old names unread) and
+  the per-language guards, with the
   toolchains **stubbed**: what is under test is which files each guard touches,
   what it stages and when it blocks, not gofmt's or ruff's behaviour. Every
   formatting case asserts the **staged blob**, never the working tree, because
@@ -324,11 +478,11 @@ and does not block `tmpl/`.
   place a runner can use it.
 - `tests/status-sh.sh [skill-dir]` — the four answers `status.sh` has to keep
   apart (current, older, local, missing), plus the exec bit, `core.hooksPath`,
-  and the stranded-in-tree-guard note. Every case denies the neighbouring
+  the stranded-in-tree-guard note, and the `.github-guard` file's state. Every case denies the neighbouring
   classification as well as asserting its own, since reporting local work as
   merely *older* is what makes a sweep delete it.
 
-All six take an optional path, so pointing them at another copy (a worktree of
+Every suite takes an optional path, so pointing them at another copy (a worktree of
 an older commit, or a deployed `.git/hooks`) shows a regression fail rather than
 asserting it.
 
@@ -352,10 +506,12 @@ which owns the `installed_into` registry (see *Upgrading every guarded project*)
    it — its behavior should move into a `pre-commit.d/` guard (fmt/clippy and
    reproducible-release dep-pinning are already covered by the `rust-*` guards).
    The installer also NAMES any executable the repo still keeps in a tracked
-   `.githooks/` or `.github-guard/`: the first used to run and no longer does,
-   and the second is a declaration directory that executes nothing. It refuses to import them
-   for you — copying executables out of the working tree is the hole this layout
-   closes — so move each into `.git/hooks/<hook>.d/`, or delete it.
+   `.githooks/` or an old `.github-guard/` directory — neither runs. It refuses
+   to import them for you — copying executables out of the working tree is the
+   hole this layout closes — so move each into `.git/hooks/<hook>.d/`, or delete
+   it. It likewise names any declaration still in the old one-file-per-fact
+   layout (`.github-guard/required-checks`, `.githooks/private-paths`, …), which
+   nothing reads now: convert it into the `.github-guard` file.
 3. **Run the installer:**
    ```sh
    bash ~/.claude/skills/github-guard/install.sh <target-repo-root>
@@ -370,8 +526,8 @@ which owns the `installed_into` registry (see *Upgrading every guarded project*)
      git -C <repo> config --get core.hooksPath   # must print nothing
      test -x <repo>/.git/hooks/pre-commit        # must succeed
      ```
-   - **The github-* guards activate on the next commit.** `github-protect-main`
-     and `github-merge-squash-only` live in `pre-commit.d/` and only act when a
+   - **The github-* guards activate on the next commit.** `github-protect-main`,
+     `github-merge-squash-only` and `github-auto-merge` live in `pre-commit.d/` and only act when a
      commit lands on the default branch. Until then the GitHub-side settings are
      NEVER applied — squash-only stays off, the default branch stays unprotected.
      Verify after that commit: `allow_merge_commit` is now `false` and
@@ -406,7 +562,8 @@ Per repo it prints one of:
 | `behind` | a file matches an **earlier release** (named by commit), or is missing, or is not executable | re-run `install.sh` |
 | `customised` | a file matches **no release** — written in place, never upstreamed | read it, upstream what is worth keeping, *then* re-install |
 | `in-tree` | the repo still **tracks** a copy of the guards under `.githooks/`, the arrangement this layout replaced | commit their deletion |
-| `stranded` | the installed files are right, but `.githooks/` or `.github-guard/` still holds executables that nothing runs | move each into `.git/hooks/<hook>.d/` or delete it |
+| `stranded` | the installed files are right, but `.githooks/` or an old `.github-guard/` directory still holds executables that nothing runs | move each into `.git/hooks/<hook>.d/` or delete it |
+| `unread` | a declaration the guards cannot read: `.github-guard` is a directory or not valid git-config, or an old `.github-guard/<name>` / `.githooks/<name>` file is still there | fix or convert it into the `.github-guard` file (`git config -f .github-guard --list` shows what is read) |
 | `inert` | `core.hooksPath` overrides `.git/hooks`, so nothing in it runs | clear the setting |
 
 A tracked in-tree copy does not run — the installer clears `core.hooksPath` —
@@ -415,6 +572,11 @@ reads as the live guards to anyone who opens the repo, it is what a branch
 checkout can rewrite, and it drifts from the copy that actually runs. Only
 **tracked** files count; an untracked leftover is one `rm` away and reaches
 nobody else.
+
+With `-v`, each repo also shows its working-tree `.github-guard` as the guards
+parse it (`checks.required=CI; merge.auto=true; …`), or `no .github-guard`.
+That is the checkout's copy: `checks.required` and `merge.auto` take effect from
+the default branch on the server, once merged.
 
 `inert` outranks everything else — with the override set, what the installed
 files say is beside the point — and `stranded` is deliberately a separate word

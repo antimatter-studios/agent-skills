@@ -127,7 +127,7 @@ target
 mkdir -p "$repo/.githooks/pre-commit.d"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/.githooks/pre-commit.d/repo-own.sh"
 chmod +x "$repo/.githooks/pre-commit.d/repo-own.sh"
-printf 'Build & Test\n' > "$repo/.githooks/required-checks"
+printf 'notes, not a hook\n' > "$repo/.githooks/README"
 out=$(status "$repo")
 says     "pre-commit.d/repo-own.sh no longer runs" "$out" "a repo's own in-tree guard is named"
 says     stranded "$out" "a repo with stranded in-tree guards reads as stranded"
@@ -135,7 +135,7 @@ says     stranded "$out" "a repo with stranded in-tree guards reads as stranded"
 # with the core.hooksPath case sent a clean-up sweep at repos whose git config
 # was the fault and vice versa.
 says_not inert    "$out" x "stranded guards are NOT reported as an override"
-says_not required-checks "$out" x "in-tree DATA is not mistaken for a stranded guard"
+says_not README "$out" x "in-tree DATA is not mistaken for a stranded guard"
 
 # --- 8. a TRACKED copy of the payload under .githooks/ is its own finding ----
 # It does not run, so nothing looks wrong; it reads as the live guards to
@@ -144,12 +144,12 @@ target
 mkdir -p "$repo/.githooks/pre-commit.d"
 cp "$pay/githooks/pre-commit" "$repo/.githooks/pre-commit"
 cp "$pay/githooks/pre-commit.d/g.sh" "$repo/.githooks/pre-commit.d/g.sh"
-printf 'CI\n' > "$repo/.githooks/required-checks"
+printf 'notes, not a hook\n' > "$repo/.githooks/README"
 git -C "$repo" add -A .githooks
 out=$(status -v "$repo")
 says "2 tracked copies" "$out" "tracked copies of the payload are counted"
 says in-tree            "$out" "a repo still carrying them reads as in-tree"
-says_not required-checks "$out" x "the repo's own data is not counted as a copy"
+says_not README "$out" x "the repo's own data is not counted as a copy"
 
 target
 mkdir -p "$repo/.githooks"
@@ -164,10 +164,8 @@ target
 mkdir -p "$repo/.github-guard"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/.github-guard/repo-own.sh"
 chmod +x "$repo/.github-guard/repo-own.sh"
-printf 'tmp\n' > "$repo/.github-guard/private-paths"
 out=$(status "$repo")
-says     ".github-guard/repo-own.sh no longer runs" "$out" "an executable in the declaration directory is named"
-says_not private-paths "$out" x "and the declarations beside it are not"
+says     ".github-guard/repo-own.sh no longer runs" "$out" "an executable in the old declaration directory is named"
 
 # Untracked is not the same finding: one rm away, and it ships to nobody.
 target
@@ -175,6 +173,43 @@ mkdir -p "$repo/.githooks"
 cp "$pay/githooks/pre-commit" "$repo/.githooks/pre-commit"
 out=$(status "$repo")
 says_not in-tree "$out" x "an untracked leftover is not reported as a tracked copy"
+
+# --- 8b. the .github-guard file ----------------------------------------------
+# The guards read ONE git-config file. A valid one is reported (verbose) with
+# what it declares, and changes nothing about the state.
+target
+printf '[checks]\n\trequired = CI\n\trequired = "C# build"\n[merge]\n\tauto = true\n[paths]\n\tprivate = tmp\n' > "$repo/.github-guard"
+out=$(status -v "$repo"); rc=$?
+says current "$out" "a valid .github-guard leaves the repo current"
+says 'checks.required=CI, C# build; merge.auto=true; paths.private=tmp' "$out" "and -v shows what it declares"
+[ "$rc" = 0 ] && ok "exit 0 with a valid .github-guard" || bad "exit $rc with a valid .github-guard"
+
+target
+out=$(status -v "$repo")
+says "no .github-guard" "$out" "-v says when there is no declarations file"
+
+# Unparseable: the guards cannot read it — required checks fall back to
+# discovery, and git-block-private-paths refuses every commit — so it is its
+# own state, and says git's reason.
+target
+printf '[checks\n\trequired = CI\n' > "$repo/.github-guard"
+out=$(status "$repo"); rc=$?
+says unread "$out" "a malformed .github-guard reads as unread"
+says "not valid git-config" "$out" "and says so"
+says "bad config line" "$out" "in git's own words"
+[ "$rc" = 1 ] && ok "exit 1 for an unread declaration" || bad "exit $rc, want 1"
+
+# The one-file-per-fact layout this replaced: each old file is named, because
+# nothing reads any of them now.
+target
+mkdir -p "$repo/.github-guard" "$repo/.githooks"
+printf 'CI\n' > "$repo/.github-guard/required-checks"
+printf 'tmp\n' > "$repo/.githooks/private-paths"
+out=$(status "$repo")
+says unread "$out" "the old declaration layout reads as unread"
+says ".github-guard is a directory" "$out" "the old directory is named"
+says ".github-guard/required-checks is not read" "$out" "each old file is named"
+says ".githooks/private-paths is not read" "$out" "including the older .githooks/ location"
 
 # --- 9. an override outranks everything else that could be said about a repo --
 target

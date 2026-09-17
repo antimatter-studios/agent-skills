@@ -152,12 +152,12 @@ for target in "${repos[@]}"; do
   shadow=0
   while IFS= read -r t; do
     [ -n "$t" ] || continue
-    rel=${t#.githooks/}; rel=${rel#.github-guard/}
+    rel=${t#.githooks/}
     [ -f "$src/$rel" ] && shadow=$((shadow + 1))
-  done < <(git -C "$target" ls-files .githooks .github-guard 2>/dev/null)
+  done < <(git -C "$target" ls-files .githooks 2>/dev/null)
 
-  # Executables under a tracked .githooks/ are guards this layout no longer runs.
-  # required-checks is data, is 644, and correctly does not appear here.
+  # Executables under .githooks/ (or the old .github-guard/ directory) are guards
+  # this layout no longer runs. Data files are 644 and do not appear here.
   stranded=0
   for d in .githooks .github-guard; do
     [ -d "$target/$d" ] || continue
@@ -170,6 +170,39 @@ for target in "${repos[@]}"; do
     done <<<"$orphans"
   done
 
+  # The declarations file. The guards read ONE git-config file, .github-guard;
+  # anything else a repo still carries from the one-file-per-fact layout is read
+  # by nothing, and nothing else would say so: the required checks quietly fall
+  # back to discovery and generated paths go untidied, while
+  # git-block-private-paths refuses every commit until .github-guard parses.
+  # What is shown is the WORKING TREE's file — github-protect-main and
+  # github-auto-merge read checks.required and merge.auto from the default
+  # branch on the server, so an unmerged edit here is not yet in force.
+  unread=0
+  decl="$target/.github-guard"
+  if [ -d "$decl" ]; then
+    unread=$((unread + 1)); notes+=(".github-guard is a directory, not the git-config file the guards read")
+  elif [ -f "$decl" ]; then
+    if git config --file "$decl" --no-includes --list >/dev/null 2>&1; then
+      facts=$( (git config --file "$decl" --no-includes --get-regexp '^(checks\.required|merge\.auto|paths\.(private|generated))$' 2>/dev/null || true) \
+        | awk '{ k = $1; val = substr($0, length(k) + 2)
+                 if (k in seen) v[k] = v[k] ", " val; else { seen[k] = 1; v[k] = val; order[++n] = k } }
+               END { for (i = 1; i <= n; i++) printf "%s%s=%s", (i > 1 ? "; " : ""), order[i], v[order[i]] }')
+      details+=("decl     .github-guard: ${facts:-declares nothing the guards read}")
+    else
+      unread=$((unread + 1))
+      why=$(git config --file "$decl" --no-includes --list 2>&1 >/dev/null | sed -n '1s/^fatal: //p' || true)
+      notes+=(".github-guard is not valid git-config: $why")
+    fi
+  else
+    details+=("decl     no .github-guard")
+  fi
+  for f in .github-guard/required-checks .github-guard/private-paths .github-guard/generated-paths \
+           .githooks/required-checks .githooks/private-paths .githooks/generated-paths; do
+    [ -f "$target/$f" ] || continue
+    unread=$((unread + 1)); notes+=("$f is not read — declare it in the .github-guard file")
+  done
+
   # One word per repo, and the two conditions that are NOT file drift get their
   # own words rather than sharing one: an override means the installed files are
   # right and none of them run, while stranded in-tree guards mean the installed
@@ -179,6 +212,7 @@ for target in "${repos[@]}"; do
   state=current
   [ "$shadow" -gt 0 ] && state=in-tree
   [ "$stranded" -gt 0 ] && state=stranded
+  [ "$unread" -gt 0 ] && state=unread
   [ $((older + missing + unarmed)) -gt 0 ] && state=behind
   [ "$local_edits" -gt 0 ] && state=customised
   # An override outranks every count: with it set, nothing under .git/hooks runs
@@ -191,6 +225,7 @@ for target in "${repos[@]}"; do
   [ "$missing" -gt 0 ] && summary+="$missing missing "
   [ "$unarmed" -gt 0 ] && summary+="$unarmed not-executable "
   [ "$stranded" -gt 0 ] && summary+="$stranded stranded in .githooks/ "
+  [ "$unread" -gt 0 ] && summary+="$unread unread declaration(s) "
   if [ "$shadow" = 1 ]; then summary+="1 tracked copy in .githooks/ "
   elif [ "$shadow" -gt 1 ]; then summary+="$shadow tracked copies in .githooks/ "; fi
   printf '%-52s %-11s %s\n' "$target" "$state" "${summary% }"

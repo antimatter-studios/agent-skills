@@ -73,14 +73,13 @@ clear_hooks_path() {
 # tree is the exact trust hole this install closes, and the bulk upgrade sweep
 # runs across clones parked on whatever branch someone left them on.
 #
-# The test is the exec bit, not the filename. .githooks/required-checks is data,
-# not a hook — and is read from the server, not the tree — so it is 644 and never
-# trips this.
+# The test is the exec bit, not the filename: a data file beside the old hooks
+# is 644 and never trips this.
 warn_orphaned_tree_guards() {
   local target="$1" dir rel found=0
-  # Both in-tree directories: the superseded .githooks/, and .github-guard/,
-  # which holds DECLARATIONS and executes nothing — an executable dropped in
-  # either one silently never runs, which is the failure worth naming.
+  # Both in-tree directories this layout replaced: .githooks/, and the
+  # .github-guard/ DIRECTORY that preceded the .github-guard file — an
+  # executable left in either one silently never runs.
   for dir in .githooks .github-guard; do
     [ -d "$target/$dir" ] || continue
     while IFS= read -r rel; do
@@ -96,6 +95,54 @@ warn_orphaned_tree_guards() {
   if [ "$found" = 1 ]; then
     printf '       Move each into .git/hooks/<hook>.d/ to keep it, or delete it.\n' >&2
   fi
+  return 0
+}
+
+# The declarations used to be one file per fact in a directory; they are now one
+# git-config file, .github-guard, and the guards read nothing else. A repo still
+# carrying the old files has declarations nothing reads, and the guards cannot
+# say so without keeping the old paths alive — so the upgrade path, which runs
+# once per clone, says it here. It never rewrites the working tree: converting
+# the files is a commit, and a commit is the repo's to make.
+warn_old_declarations() {
+  local target="$1" f found=0
+  for f in .github-guard/required-checks .github-guard/private-paths .github-guard/generated-paths \
+           .githooks/required-checks .githooks/private-paths .githooks/generated-paths; do
+    [ -f "$target/$f" ] || continue
+    if [ "$found" = 0 ]; then
+      found=1
+      printf '  NOTE %s: declarations in the old one-file-per-fact layout are no longer read:\n' "$target" >&2
+    fi
+    printf '       %s\n' "$f" >&2
+  done
+  if [ "$found" = 1 ]; then
+    printf '       Convert them into the single git-config file .github-guard ([checks] required,\n' >&2
+    printf '       [paths] private / generated) and delete the old files — see the README.\n' >&2
+  fi
+  return 0
+}
+
+# The per-clone path overrides were renamed to mirror the file's keys:
+#   github-guard.private-path    ->  github-guard.paths.private
+#   github-guard.generated-path  ->  github-guard.paths.generated
+# The guards read only the new names. This is the one-time MIGRATION of a clone's
+# own config, done by the upgrade that introduces the rename and said out loud —
+# not a fallback: nothing at runtime looks at the old names. Only the repo's
+# local config is rewritten; a --global value is the operator's to move.
+migrate_local_path_keys() {
+  local target="$1" pair old new vals v
+  for pair in private-path:private generated-path:generated; do
+    old="github-guard.${pair%%:*}"; new="github-guard.paths.${pair#*:}"
+    vals=$(git -C "$target" config --local --get-all "$old" 2>/dev/null) || continue
+    while IFS= read -r v; do
+      [ -n "$v" ] || continue
+      # --fixed-value needs git 2.30; an exact-line grep does the same everywhere.
+      git -C "$target" config --local --get-all "$new" 2>/dev/null | grep -qxF -- "$v" \
+        || git -C "$target" config --local --add "$new" "$v"
+    done <<<"$vals"
+    git -C "$target" config --local --unset-all "$old"
+    printf '  migrated git config %s -> %s (%s)\n' "$old" "$new" "$(printf '%s' "$vals" | tr '\n' ' ')" >&2
+  done
   return 0
 }
 
@@ -130,6 +177,8 @@ copy_into() {
       done
 
   warn_orphaned_tree_guards "$target"
+  warn_old_declarations "$target"
+  migrate_local_path_keys "$target"
 
   # Assert the END STATE, not the actions. Both halves matter and they fail
   # independently: hooks present but core.hooksPath still set = inert install.

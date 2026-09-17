@@ -1,0 +1,56 @@
+name: Auto-merge when .github-guard says so
+description: >-
+  Ask GitHub to squash-merge a same-repository pull request once its required
+  checks pass — only when the repository's .github-guard on the default branch
+  declares merge.auto = true. Fork pull requests are never auto-merged.
+
+# WHY THIS IS AN ACTION
+# ---------------------
+# github-guard's github-auto-merge guard can only ALLOW auto-merge on a
+# repository (the "Allow auto-merge" setting). Each pull request still has to
+# ask for it. Asking from CI, on every pull request, means nobody has to
+# remember to, and asking through this action means the same declaration that
+# switched the setting on decides whether to ask: one `merge.auto = true` in
+# .github-guard, read by the same code the guard reads it with.
+#
+# WHAT IT REFUSES
+# ---------------
+# - a pull request from a FORK: its code has not been reviewed by anyone with
+#   write access, and merging it unattended is exactly the thing not to do;
+# - a pull request whose base is not the default branch: the required checks
+#   that make auto-merge wait for CI are the default branch's, so a stacked PR
+#   into a feature branch could merge the moment it opened;
+# - a draft;
+# - anything but a pull_request / pull_request_target event.
+#
+# merge.auto is read from the DEFAULT BRANCH through the API, never from the
+# checkout, so a pull request cannot turn auto-merge on for itself by editing
+# .github-guard.
+inputs:
+  github-token:
+    description: >-
+      Token that enables auto-merge. Needs contents: write and
+      pull-requests: write. A merge made with the default GITHUB_TOKEN does not
+      trigger `on: push` workflows on the default branch; pass a GitHub App or
+      fine-grained token if a release or deploy workflow must run after merge.
+    required: false
+    default: ${{ github.token }}
+outputs:
+  result:
+    description: >-
+      What happened: enabled, or skipped:<reason> (fork, base, draft, event,
+      not-declared, no-file, invalid).
+    value: ${{ steps.auto.outputs.result }}
+runs:
+  using: composite
+  steps:
+    - id: auto
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        # The same lib/common.sh the guards use, from this action's own
+        # checkout — so the action and the guard cannot read .github-guard
+        # two different ways.
+        "$GITHUB_ACTION_PATH/auto-merge.sh"

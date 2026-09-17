@@ -111,10 +111,13 @@ fi
 # Sanitize to digits so only a number can reach the JSON payload below.
 case "$review_count" in '' | *[!0-9]*) review_count=0 ;; esac
 
-# An OPTIONAL committed declaration OVERRIDES discovery: `.github-guard/required-checks`
-# (or the older `.githooks/required-checks`),
-# one check-run name per line (`#` comments and blank lines ignored; the single
-# word `none` means require no checks at all).
+# An OPTIONAL committed declaration OVERRIDES discovery: `checks.required` in the
+# repo's `.github-guard` file (git-config format, see lib/common.sh) — one
+# check-run name per value, the key repeated for more; the single value `none`
+# means require no checks at all.
+#
+#   [checks]
+#   	required = CI
 #
 # Discovery below requires checks BY JOB NAME, which is only ever a guess at the
 # PR gate — and one class of guess is unfixable from the API alone. A workflow
@@ -140,30 +143,33 @@ if command -v jq >/dev/null 2>&1; then
   # locally) carrying a declaration that says `none` must NOT be
   # able to clear protection just because the owner commits while it is checked
   # out. Reading the committed `$branch` copy means a policy change only takes
-  # effect once it is merged to the default branch. Absent/unreadable (404, no
-  # network, no jq) → '[]', i.e. fall through to discovery — never unprotect.
-  # .github-guard/ first, .githooks/ still honoured: the declaration outlived
-  # the directory it was named for, and both are read from the SERVER, so a
-  # repo moves the file in its own time with no window where neither is read.
-  decl_path=.github-guard/required-checks
-  decl_raw=$(gh api "repos/$slug/contents/$decl_path?ref=$branch" \
-    -H "Accept: application/vnd.github.raw" 2>/dev/null) || decl_raw=""
-  if [ -z "$decl_raw" ]; then
-    decl_path=.githooks/required-checks
-    decl_raw=$(gh api "repos/$slug/contents/$decl_path?ref=$branch" \
-      -H "Accept: application/vnd.github.raw" 2>/dev/null) || decl_raw=""
-    [ -n "$decl_raw" ] && echo "github-guard: $branch declares its gate in .githooks/required-checks — move it to .github-guard/required-checks (nothing in .githooks/ runs any more)" >&2
-  fi
-  if [ -n "$decl_raw" ]; then
-    declared=$(printf '%s\n' "$decl_raw" \
-      | sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' \
+  # effect once it is merged to the default branch.
+  #
+  # Every way of NOT getting a usable list falls through to discovery — never to
+  # "require nothing": absent/unreachable (404, no network, no jq) silently, as a
+  # repo with no declaration; a directory where the file should be, a file git
+  # cannot parse, or a [checks] section with no names in it, with a warning.
+  decl_tmp=$(mktemp "${TMPDIR:-/tmp}/gg-decl.XXXXXX")
+  trap 'rm -f "$decl_tmp"' EXIT
+  gg_fetch_server_decl "$slug" "$branch" "$decl_tmp"; fetched=$?
+  if [ "$fetched" = 2 ]; then
+    echo "github-guard: $GG_DECL_FILE on $branch is not a file — ignoring it, discovering checks instead" >&2
+  elif [ "$fetched" = 0 ] && ! gg_decl_valid "$decl_tmp"; then
+    echo "github-guard: $GG_DECL_FILE on $branch is not valid git-config ($(gg_decl_error "$decl_tmp")) — ignoring it, discovering checks instead" >&2
+  elif [ "$fetched" = 0 ]; then
+    declared=$(gg_decl_config "$decl_tmp" --get-all checks.required 2>/dev/null \
+      | sed -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' \
       | jq -sRc 'split("\n") | map(select(length > 0)) | map({context: .}) | unique')
     case "$declared" in '' | null) declared='[]' ;; esac
-    if [ "$declared" = '[]' ]; then
-      # Comments-only or empty: NOT read as "require nothing" — a file someone
-      # blanked mid-edit must not silently unprotect the branch. Fall through to
-      # discovery; `none` is the explicit way to ask for an empty set.
-      echo "github-guard: $decl_path on $branch lists no checks — ignoring it (write 'none' to require none)" >&2
+    # A key with no names, or a [checks] section someone emptied mid-edit, is NOT
+    # read as "require nothing" — that must not silently unprotect the branch.
+    # Fall through to discovery; `none` is the explicit way to ask for an empty
+    # set. A file that never mentions [checks] (one declaring only paths, say)
+    # simply has no declaration and says nothing.
+    if [ "$declared" = '[]' ] \
+       && { gg_decl_config "$decl_tmp" --get-all checks.required >/dev/null 2>&1 \
+            || grep -qiE '^[[:space:]]*\[[[:space:]]*checks[[:space:]]*\]' "$decl_tmp"; }; then
+      echo "github-guard: $GG_DECL_FILE on $branch lists no checks.required — ignoring it (write 'required = none' to require none)" >&2
     fi
   fi
 fi

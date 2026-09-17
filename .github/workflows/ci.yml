@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 # One job, so the required status check is a single name that always reports —
-# see .github-guard/required-checks. Adding a second job means adding an always-run
+# see checks.required in .github-guard. Adding a second job means adding an always-run
 # aggregate that `needs:` both, not requiring another name.
 jobs:
   ci:
@@ -25,7 +25,7 @@ jobs:
       # What counts as a script: any file with a shebang. Git hooks are
       # extensionless by necessity, so a name-based rule either misses the
       # dispatchers or sweeps up data files that live beside them —
-      # .github-guard/required-checks was linted as shell on the first run here.
+      # the old extensionless required-checks declaration was linted as shell on the first run here.
       - name: Collect scripts
         run: |
           set -euo pipefail
@@ -121,3 +121,20 @@ jobs:
           [ '${{ steps.missing.outcome }}' = 'failure' ] \
             || { echo "the action exited 0 for a version with no changelog section"; exit 1; }
           echo "a missing section fails the step"
+
+      # The auto-merge action's wiring: that it finds the guards' lib through
+      # $GITHUB_ACTION_PATH, reads the real event, and reports a result. This
+      # repo does not declare merge.auto, so the only right answers are skips —
+      # not-declared on a pull request, fork on a fork's, base on a stacked one,
+      # event on a push — and the job's read-only token could not merge
+      # anything regardless.
+      - name: auto-merge action
+        id: automerge
+        uses: ./.github/actions/auto-merge
+
+      - name: ...reports a skip here
+        run: |
+          case '${{ steps.automerge.outputs.result }}' in
+            skipped:not-declared|skipped:fork|skipped:event|skipped:base) echo "auto-merge action wired: ${{ steps.automerge.outputs.result }}" ;;
+            *) echo "unexpected auto-merge result: '${{ steps.automerge.outputs.result }}'"; exit 1 ;;
+          esac

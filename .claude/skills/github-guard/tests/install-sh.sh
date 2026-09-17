@@ -101,20 +101,54 @@ git -C "$repo" config core.hooksPath .githooks
 hooks_path_unset "$repo" "upgrade from an in-tree install"
 is_exec "$hooks/pre-commit" "pre-commit dispatcher after upgrade"
 
-# --- 3. THE REGRESSION: a repo's own data file keeps its mode ----------------
-# .githooks/required-checks is repo-local config the guards read FROM THE SERVER,
-# so the directory stays in the tree even though the hooks no longer live there.
-# The installer must not touch it — mode, content, or otherwise.
+# --- 3. THE REGRESSION: a repo's own data files keep their mode ------------
+# A data file beside the old in-tree hooks (the one-file-per-fact declarations
+# lived there) must not be marked executable, and the .github-guard file must be
+# left exactly as it is — mode, content, or otherwise. The installer never writes
+# into the working tree.
 setup
 mkdir -p "$repo/.githooks"
 printf 'CI\n' > "$repo/.githooks/required-checks"
 chmod 644 "$repo/.githooks/required-checks"
-"$skill/install.sh" "$repo" >/dev/null
-not_exec  "$repo/.githooks/required-checks" "required-checks"
-same_mode "$repo/.githooks/required-checks" 644 "required-checks"
-[ "$(cat "$repo/.githooks/required-checks")" = CI ] \
-  && ok "required-checks content untouched" || bad "required-checks content changed"
+printf '[checks]\n\trequired = CI\n' > "$repo/.github-guard"
+chmod 644 "$repo/.github-guard"
+cp "$repo/.github-guard" "$root/decl.before"
+"$skill/install.sh" "$repo" >/dev/null 2>"$root/err3"
+not_exec  "$repo/.githooks/required-checks" "an old data file"
+same_mode "$repo/.githooks/required-checks" 644 "an old data file"
+not_exec  "$repo/.github-guard" ".github-guard"
+same_mode "$repo/.github-guard" 644 ".github-guard"
+cmp -s "$repo/.github-guard" "$root/decl.before" \
+  && ok ".github-guard content untouched" || bad ".github-guard content changed"
 absent    "$repo/.githooks/pre-commit"      "payload copy in the working tree"
+# The guards read only .github-guard now, so a declaration left in the old
+# layout is read by nothing — and the upgrade is the one place that says so.
+grep -qF '.githooks/required-checks' "$root/err3" \
+  && ok "an old-layout declaration is named on upgrade" || bad "old declaration not named: $(cat "$root/err3")"
+grep -qF 'no longer read' "$root/err3" \
+  && ok "and says it is no longer read" || bad "no 'no longer read' note: $(cat "$root/err3")"
+
+# --- 3b. the per-clone path keys are migrated to their new names, once --------
+# github-guard.private-path / generated-path became github-guard.paths.private /
+# paths.generated, mirroring the file. Nothing at runtime reads the old names, so
+# the upgrade moves them, says so, and does not duplicate a value already there.
+setup
+git -C "$repo" config --add github-guard.private-path tmp
+git -C "$repo" config --add github-guard.private-path examples
+git -C "$repo" config --add github-guard.paths.private tmp
+git -C "$repo" config --add github-guard.generated-path frontend/bindings
+"$skill/install.sh" "$repo" >/dev/null 2>"$root/err3b"
+got=$(git -C "$repo" config --get-all github-guard.paths.private | tr '\n' ' ')
+[ "$got" = "tmp examples " ] && ok "private-path values moved to paths.private, without duplicates" \
+                             || bad "paths.private is '$got'"
+got=$(git -C "$repo" config --get-all github-guard.paths.generated)
+[ "$got" = "frontend/bindings" ] && ok "generated-path moved to paths.generated" || bad "paths.generated is '$got'"
+[ -z "$(git -C "$repo" config --get-all github-guard.private-path)$(git -C "$repo" config --get-all github-guard.generated-path)" ] \
+  && ok "the old keys are gone" || bad "an old key survived the migration"
+grep -qF 'migrated git config github-guard.private-path -> github-guard.paths.private' "$root/err3b" \
+  && ok "the migration is announced" || bad "silent migration: $(cat "$root/err3b")"
+"$skill/install.sh" "$repo" >/dev/null 2>"$root/err3c"
+grep -qF 'migrated' "$root/err3c" && bad "a second install migrated again" || ok "a second install has nothing to migrate"
 
 # --- 4. a project-local extra guard survives an upgrade ---------------------
 setup

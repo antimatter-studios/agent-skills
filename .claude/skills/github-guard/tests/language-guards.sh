@@ -171,10 +171,10 @@ mv "$root/ruff.hidden" "$bin/ruff"
 setup
 mkdir -p "$repo/tmp" "$repo/tmpl"
 printf 'x\n' > "$repo/tmp/secret.bin"; printf 'x\n' > "$repo/tmpl/page.html"
-git -C "$repo" config --add github-guard.private-path tmp
+git -C "$repo" config --add github-guard.paths.private tmp
 git -C "$repo" add -f tmp/secret.bin
 out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
-[ "$rc" = 1 ] && ok "a declared private path is blocked" || bad "private path exited $rc, want 1"
+[ "$rc" = 1 ] && ok "a private path declared in per-clone config is blocked" || bad "private path exited $rc, want 1"
 says "tmp/secret.bin" "$out" "the offending path is named"
 
 git -C "$repo" rm -q --cached tmp/secret.bin
@@ -185,24 +185,30 @@ out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
 
 # The in-tree declaration, which is the one that travels to a fresh clone.
 setup
-mkdir -p "$repo/.githooks" "$repo/corpus"
-printf '# not ours to publish\ncorpus\n' > "$repo/.githooks/private-paths"
-printf 'x\n' > "$repo/corpus/sample.bin"
+mkdir -p "$repo/corpus" "$repo/examples"
+printf '# not ours to publish\n[paths]\n\tprivate = corpus\n\tprivate = examples   # repeat the key\n' > "$repo/.github-guard"
+printf 'x\n' > "$repo/corpus/sample.bin"; printf 'x\n' > "$repo/examples/e.bin"
 git -C "$repo" add -f corpus/sample.bin
 out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
-[ "$rc" = 1 ] && ok "an in-tree declaration is honoured too" || bad "in-tree declaration exited $rc"
+[ "$rc" = 1 ] && ok "[paths] private in .github-guard is honoured" || bad ".github-guard declaration exited $rc"
+git -C "$repo" rm -q --cached corpus/sample.bin
+git -C "$repo" add -f examples/e.bin
+out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
+[ "$rc" = 1 ] && ok "every repeated private = is honoured, not just the last" || bad "second private path exited $rc"
 
-# The declaration belongs in .github-guard/, since .githooks/ holds no hooks
-# any more. The old location still works, and says so, so no repo has to move
-# its file in the same commit as anything else.
-setup
-mkdir -p "$repo/.github-guard" "$repo/corpus"
-printf 'corpus\n' > "$repo/.github-guard/private-paths"
-printf 'x\n' > "$repo/corpus/sample.bin"
-git -C "$repo" add -f corpus/sample.bin
+# Per-clone config wins where both exist: it replaces the file's list, it does
+# not add to it.
+git -C "$repo" config --add github-guard.paths.private tmp
 out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
-[ "$rc" = 1 ] && ok ".github-guard/ is where a declaration is read from" || bad ".github-guard declaration ignored (exit $rc)"
-says_not "move it" "$out" x "and the new location draws no migration notice"
+[ "$rc" = 0 ] && ok "per-clone github-guard.paths.private overrides the file" || bad "the file was still read beside local config (exit $rc)"
+
+# The names these used to have are not read at all — install.sh migrates them.
+setup
+mkdir -p "$repo/tmp"; printf 'x\n' > "$repo/tmp/secret.bin"
+git -C "$repo" config --add github-guard.private-path tmp
+git -C "$repo" add -f tmp/secret.bin
+out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
+[ "$rc" = 0 ] && ok "the old github-guard.private-path key is not read" || bad "the old key still works (exit $rc)"
 
 setup
 mkdir -p "$repo/.githooks" "$repo/corpus"
@@ -210,8 +216,44 @@ printf 'corpus\n' > "$repo/.githooks/private-paths"
 printf 'x\n' > "$repo/corpus/sample.bin"
 git -C "$repo" add -f corpus/sample.bin
 out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
-[ "$rc" = 1 ] && ok "the superseded location still works" || bad "a .githooks declaration was dropped (exit $rc)"
-says "move it to .github-guard/private-paths" "$out" "and the move is spelled out"
+[ "$rc" = 0 ] && ok ".githooks/private-paths is not read" || bad ".githooks/private-paths still read (exit $rc)"
+says_not "move it" "$out" x "and no migration notice is printed"
+
+# QUOTING: `#` starts a comment in a git-config value unless the value is quoted.
+setup
+mkdir -p "$repo/a#b"; printf 'x\n' > "$repo/a#b/f"
+printf '[paths]\n\tprivate = "a#b"\n' > "$repo/.github-guard"
+git -C "$repo" add -f "a#b/f"
+out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
+[ "$rc" = 1 ] && ok "a quoted path containing # is matched whole" || bad "quoted a#b was not blocked (exit $rc)"
+
+# A .github-guard git cannot read may be the one naming the private paths.
+# Reading it as "nothing is private" is the one answer a wall must not give.
+setup
+mkdir -p "$repo/corpus"; printf 'x\n' > "$repo/corpus/sample.bin"
+printf '[paths\n\tprivate = corpus\n' > "$repo/.github-guard"
+git -C "$repo" add -f corpus/sample.bin
+out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
+[ "$rc" = 1 ] && ok "a malformed .github-guard blocks rather than allowing everything" || bad "malformed file exited $rc, want 1"
+says "can't tell which paths are private" "$out" "and says why"
+says "bad config line" "$out" "in git's own words"
+
+# The old layout, a DIRECTORY at .github-guard, is not a file the guard can read
+# either — same answer.
+setup
+mkdir -p "$repo/.github-guard" "$repo/src"
+printf 'corpus\n' > "$repo/.github-guard/private-paths"
+printf 'x\n' > "$repo/src/a.txt"
+git -C "$repo" add src/a.txt
+out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
+[ "$rc" = 1 ] && ok "an old .github-guard/ directory blocks too" || bad "a .github-guard directory exited $rc, want 1"
+says "is a directory" "$out" "and names the problem"
+
+# ...unless the clone declares its paths itself, in which case the file is not
+# consulted at all.
+git -C "$repo" config --add github-guard.paths.private corpus
+out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
+[ "$rc" = 0 ] && ok "per-clone config wins even over an unreadable file" || bad "local config did not win (exit $rc)"
 
 # Nothing declared: the guard has no business guessing.
 setup
@@ -221,20 +263,28 @@ out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
 [ "$rc" = 0 ] && ok "with nothing declared the guard no-ops" || bad "undeclared tmp/ was blocked (exit $rc)"
 says_not refusing "$out" x "and says nothing at all"
 
+# A .github-guard declaring other things only is not a private-paths declaration.
+setup
+mkdir -p "$repo/tmp"; printf 'x\n' > "$repo/tmp/thing.bin"
+printf '[checks]\n\trequired = CI\n' > "$repo/.github-guard"
+git -C "$repo" add -f tmp/thing.bin
+out=$(run pre-commit.d/git-block-private-paths.sh); rc=$?
+[ "$rc" = 0 ] && ok "a .github-guard with no [paths] declares nothing private" || bad "exit $rc"
+
 # --- generated-normalise ----------------------------------------------------
 setup
-mkdir -p "$repo/.github-guard" "$repo/gen"
-printf 'gen\n' > "$repo/.github-guard/generated-paths"
+mkdir -p "$repo/gen"
+printf '[paths]\n\tgenerated = gen\n' > "$repo/.github-guard"
 printf 'line   \n' > "$repo/gen/out.ts"
 git -C "$repo" add gen/out.ts
 out=$(run pre-commit.d/generated-normalise.sh)
-staged_is gen/out.ts "line" "generated-normalise reads .github-guard/generated-paths too"
+staged_is gen/out.ts "line" "generated-normalise reads [paths] generated from .github-guard"
 
 setup
 mkdir -p "$repo/gen" "$repo/src"
 printf 'line   \n' > "$repo/gen/out.ts"
 printf 'line   \n' > "$repo/src/hand.ts"
-git -C "$repo" config --add github-guard.generated-path gen
+git -C "$repo" config --add github-guard.paths.generated gen
 git -C "$repo" add gen/out.ts src/hand.ts
 out=$(run pre-commit.d/generated-normalise.sh); rc=$?
 staged_is gen/out.ts "line" "trailing whitespace in generated output is stripped and re-staged"
@@ -244,12 +294,31 @@ staged_is src/hand.ts "line   " "hand-written code is left for the blocking guar
 setup
 mkdir -p "$repo/gen"
 printf 'line   \n' > "$repo/gen/out.ts"
-git -C "$repo" config --add github-guard.generated-path gen
+git -C "$repo" config --add github-guard.paths.generated gen
 git -C "$repo" add gen/out.ts
 printf 'line   \nlocal edit\n' > "$repo/gen/out.ts"
 out=$(run pre-commit.d/generated-normalise.sh)
 staged_is gen/out.ts "line   " "a generated file with unstaged edits is not re-staged"
 says "unstaged changes" "$out" "and the skip is reported"
+
+# Unreadable file: never blocks (this guard never does), but says why it did nothing.
+setup
+mkdir -p "$repo/gen"
+printf '[paths\n\tgenerated = gen\n' > "$repo/.github-guard"
+printf 'line   \n' > "$repo/gen/out.ts"
+git -C "$repo" add gen/out.ts
+out=$(run pre-commit.d/generated-normalise.sh); rc=$?
+[ "$rc" = 0 ] && ok "a malformed .github-guard does not make generated-normalise block" || bad "exit $rc"
+staged_is gen/out.ts "line   " "and nothing is rewritten"
+says "generated-normalise skipped" "$out" "and the skip is reported"
+
+setup
+mkdir -p "$repo/gen" "$repo/.github-guard"
+printf 'gen\n' > "$repo/.github-guard/generated-paths"
+printf 'line   \n' > "$repo/gen/out.ts"
+git -C "$repo" add gen/out.ts
+out=$(run pre-commit.d/generated-normalise.sh)
+staged_is gen/out.ts "line   " "the old .github-guard/generated-paths is not read"
 
 # --- go-vet -----------------------------------------------------------------
 cat > "$bin/go" <<'STUB'
@@ -305,7 +374,7 @@ staged_is other/lib.ts "const b=2" "a file with no prettier above it is left alo
 # disarmed. A dispatcher only runs executable guards.
 [ ! -x "$G/pre-push.d/go-test.sh" ] && ok "go-test ships disarmed (not executable)" \
                                     || bad "go-test ships executable — it would run in every Go repo on upgrade"
-for g in go-fmt go-vet python-fmt python-lint js-fmt git-block-private-paths generated-normalise; do
+for g in go-fmt go-vet python-fmt python-lint js-fmt git-block-private-paths generated-normalise github-auto-merge; do
   [ -x "$G/pre-commit.d/$g.sh" ] && ok "$g ships armed" || bad "$g is not executable"
 done
 

@@ -8,11 +8,13 @@
 # repo: reverse-engineering notes, third-party sample corpora, a vendored
 # encoder, a customer's data. Ignoring is a convenience; this is a wall.
 #
-# Declare the paths per clone or in the tree (see gg_declared_paths):
+# Declare the paths in the tree, in the repo's .github-guard file, or per clone
+# (see gg_declared_paths; the per-clone config wins where both exist):
 #
-#   git config --add github-guard.private-path tmp
-#   git config --add github-guard.private-path examples
-#     ...or .githooks/private-paths, one path per line, # for comments
+#   .github-guard                       .git/config (git config --add ...)
+#   [paths]                             github-guard.paths.private tmp
+#   	private = tmp                     github-guard.paths.private examples
+#   	private = examples
 #
 # With nothing declared the guard no-ops: which directories are private is not
 # something it can guess, and guessing would block the wrong commit.
@@ -23,11 +25,22 @@ dir=$(cd "$(dirname "$0")/.." && pwd)   # the hooks dir
 # shellcheck source=../lib/common.sh
 . "$dir/lib/common.sh"
 
-prefixes=$(gg_declared_paths private-path private-paths)
-[ -n "$prefixes" ] || exit 0
-
 staged=$(git diff --cached --name-only --diff-filter=ACM)
 [ -n "$staged" ] || exit 0
+
+prefixes=$(gg_declared_paths private); declared=$?
+if [ "$declared" = 2 ]; then
+  # A .github-guard git cannot read may be the one naming the private paths, and
+  # this guard cannot tell. Letting the commit through would read "unreadable"
+  # as "nothing is private", which is the one answer a wall must not give. It
+  # reads the working-tree file, so fixing the file clears this at once.
+  root=$(git rev-parse --show-toplevel)
+  echo "github-guard: can't tell which paths are private — $(gg_decl_error "$root/$GG_DECL_FILE")." >&2
+  echo "             Fix .github-guard (git config -f .github-guard --list shows the error)," >&2
+  echo "             or declare the paths per clone: git config --add github-guard.paths.private <path>" >&2
+  exit 1
+fi
+[ -n "$prefixes" ] || exit 0
 
 fail=0
 while IFS= read -r path; do
