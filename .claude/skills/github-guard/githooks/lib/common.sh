@@ -76,43 +76,112 @@ gg_has_changelog() {
 }
 
 # --- Declarations a repo makes to the guards ---------------------------------
-
-# Echo the path prefixes a repo declared for <key>, one per line, or nothing.
 #
-#   gg_declared_paths private-path private-paths
-#                     ^ git config github-guard.<key> (repeatable)
-#                                   ^ .githooks/<file>, one path per line
+# A repo declares facts about itself in ONE tracked file at its root,
+# `.github-guard`, in git-config format — read with `git config -f`, so the
+# guards need no parser beyond the git they already run under:
+#
+#   [checks]
+#   	required = CI              # repeat the key for more; `none` = require none
+#   [merge]
+#   	auto = true
+#   [paths]
+#   	private = tmp              # repeat the key for more
+#   	generated = frontend/bindings
+#
+# `#` and `;` start a comment anywhere outside double quotes, so a value that
+# contains either must be quoted: required = "C# build".
+#
+# The file is DATA. It is never executed, and it is always read with
+# --no-includes, so an `[include]` in it cannot pull in a file from elsewhere.
+
+# The declarations file's name, relative to a repo root.
+GG_DECL_FILE=.github-guard
+
+# git config, restricted to one declarations file and nothing else.
+gg_decl_config() {
+  local file="$1"; shift
+  git config --file "$file" --no-includes "$@"
+}
+
+# True if <file> is a readable, well-formed git-config file. A directory (the
+# layout this file replaced), a syntax error, or an unreadable file all fail —
+# and a caller must treat that as "cannot tell", never as "nothing declared".
+gg_decl_valid() {
+  [ -f "$1" ] && gg_decl_config "$1" --list >/dev/null 2>&1
+}
+
+# Fetch the DEFAULT BRANCH's `.github-guard` from the SERVER into <out>.
+#
+#   gg_fetch_server_decl <owner/repo> <branch> <out>
+#     0  fetched: <out> holds the committed file
+#     1  unreachable or absent (404, offline, no permission)
+#     2  something is there that is not a file (e.g. the old directory)
+#
+# The privileged declarations (checks.required can strip branch protection,
+# merge.auto lets a PR merge unattended) are read from here and NEVER from the
+# working tree: these guards run pre-commit against whatever happens to be
+# checked out, and an untrusted branch must not be able to rewrite the policy
+# that protects the default branch just by being checked out while the owner
+# commits. A policy change takes effect once it is merged.
+#
+# The contents API is asked for JSON rather than the raw media type, because
+# the raw type answers a DIRECTORY with a JSON listing and a 200.
+gg_fetch_server_decl() {
+  local slug="$1" branch="$2" out="$3" raw
+  raw=$(gh api "repos/$slug/contents/$GG_DECL_FILE?ref=$branch" \
+    --jq 'if type == "object" and .type == "file" and .encoding == "base64"
+          then "file:" + (.content | gsub("\n"; "") | @base64d)
+          else "other" end' 2>/dev/null) || return 1
+  case "$raw" in
+    file:*) printf '%s\n' "${raw#file:}" > "$out" ;;
+    *) return 2 ;;
+  esac
+}
+
+# Echo the path prefixes a repo declared for <kind> (private | generated), one
+# per line, or nothing.
+#
+#   gg_declared_paths private
+#     1. git config github-guard.paths.private      (per clone; repeatable)
+#     2. .github-guard  [paths] private = ...       (in the working tree)
+#
+# The per-clone keys mirror the file's: `[paths] private` in .github-guard is
+# `[github-guard "paths"] private` in .git/config.
 #
 # Two sources because they answer different needs. Per-clone git config cannot
 # be rewritten by a branch, which is the arrangement the whole hooks layout
-# exists to get (see install.sh). An in-tree file TRAVELS with the repo, which
+# exists to get (see install.sh). The in-tree file TRAVELS with the repo, which
 # is what a "do not publish this directory" rule actually wants — a fresh clone
 # must inherit it or the wall is only as good as whoever remembered to set it
-# up. So config wins where both are present, and the in-tree file is read as
-# data only: it names paths, it is never executed, and a branch that edits it
-# can only weaken a guard that protects its own author from an accident.
+# up. So config wins where both are present, and the file is read as data only:
+# a branch that edits it can only weaken a guard that protects its own author
+# from an accident. That is also why these, unlike checks.required, are read
+# from the working tree: they must work in a clone with no network.
 #
-# Both empty means the guard has nothing to act on and no-ops — a guard that
-# guesses which directories are private would block the wrong commits.
+# Returns 0 with the list (possibly empty: nothing declared), or 2 when
+# .github-guard exists but is not a readable git-config file. On 2 the caller
+# cannot know what was declared and must not read it as "nothing".
 gg_declared_paths() {
-  local key="$1" file="$2" root out path
-  out=$(git config --get-all "github-guard.$key" 2>/dev/null) || out=
+  local kind="$1" root out file
+  out=$(git config --get-all "github-guard.paths.$kind" 2>/dev/null) || out=
   if [ -n "$out" ]; then printf '%s\n' "$out"; return 0; fi
   root=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
-  # .github-guard/ is where a declaration belongs: the hooks themselves live in
-  # .git/hooks, so a directory called .githooks/ holding no hooks invites
-  # someone to drop an executable in and expect it to run, which it never will.
-  # The old path still works, with a warning, so no repo has a flag day.
-  if [ -f "$root/.github-guard/$file" ]; then
-    path="$root/.github-guard/$file"
-  elif [ -f "$root/.githooks/$file" ]; then
-    path="$root/.githooks/$file"
-    echo "github-guard: read .githooks/$file — move it to .github-guard/$file (the hooks are in .git/hooks; nothing in .githooks/ runs)" >&2
-  else
-    return 0
-  fi
-  sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' "$path" \
+  file="$root/$GG_DECL_FILE"
+  [ -e "$file" ] || return 0
+  gg_decl_valid "$file" || return 2
+  gg_decl_config "$file" --get-all "paths.$kind" 2>/dev/null \
+    | sed -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' \
     | grep -v '^$' || true
+}
+
+# Why gg_decl_valid failed, in git's own words, for a message worth acting on.
+gg_decl_error() {
+  if [ -d "$1" ]; then
+    printf '%s is a directory, not a git-config file' "$GG_DECL_FILE"
+  else
+    gg_decl_config "$1" --list 2>&1 >/dev/null | sed -n '1s/^fatal: //p'
+  fi
 }
 
 # The notice every format-then-restage guard owes a partially-staged file.

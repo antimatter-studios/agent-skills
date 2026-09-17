@@ -1,0 +1,9 @@
+# .github-guard — declarations github-guard reads (see
+# .claude/skills/github-guard/README.md). git-config format: check with
+#   git config -f .github-guard --list
+# and double-quote any value containing # or ;.
+
+# What must pass before main takes a merge — see the github-guard skill.
+# One always-run job, so a check by this name always reports.
+[checks]
+	required = CI

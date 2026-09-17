@@ -1,3 +1,0 @@
-# What must pass before main takes a merge — see the github-guard skill.
-# One always-run job, so a check by this name always reports.
-CI

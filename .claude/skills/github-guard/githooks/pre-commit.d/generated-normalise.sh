@@ -10,10 +10,11 @@
 # disables every other guard too, which is a far worse outcome than a stray
 # space.
 #
-# Only declared paths are touched (see gg_declared_paths):
+# Only declared paths are touched (see gg_declared_paths; per-clone config wins):
 #
-#   git config --add github-guard.generated-path frontend/bindings
-#     ...or .githooks/generated-paths, one path per line
+#   .github-guard                       .git/config (git config --add ...)
+#   [paths]                             github-guard.paths.generated frontend/bindings
+#   	generated = frontend/bindings
 #
 # Hand-written code is deliberately left to the blocking guard, because there
 # the whitespace IS worth a complaint.
@@ -24,7 +25,13 @@ dir=$(cd "$(dirname "$0")/.." && pwd)   # the hooks dir
 
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 
-paths=$(gg_declared_paths generated-path generated-paths)
+paths=$(gg_declared_paths generated); declared=$?
+if [ "$declared" = 2 ]; then
+  # Never blocks, so the most it can do is say why it did nothing: a blocking
+  # whitespace guard after it may now refuse output this would have tidied.
+  echo "github-guard: generated-normalise skipped — $(gg_decl_error "$root/$GG_DECL_FILE")" >&2
+  exit 0
+fi
 [ -n "$paths" ] || exit 0
 
 specs=()
