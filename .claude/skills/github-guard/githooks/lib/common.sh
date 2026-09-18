@@ -200,11 +200,38 @@ gg_partial_notice() {
 
 # --- Rust helpers (shared by the rust-* guards) ------------------------------
 
-# True if the repo root holds a Cargo.toml (i.e. it's a Cargo project).
-gg_is_rust() {
+# The Cargo projects in this repo, one repo-relative manifest path per line: every
+# tracked Cargo.toml that is not inside the directory of another tracked one, and
+# is on disk. A repo whose crate is at the root prints `Cargo.toml` and nothing
+# else, because every other manifest is under it (workspace members, a fuzz/
+# crate) and cargo run at the root already reaches what it should. A repo whose
+# crate lives in a subdirectory -- a tool repo with its Rust code in `runner/` --
+# prints `runner/Cargo.toml`, where testing only the root saw no Cargo project at
+# all and every rust-* guard skipped without a word.
+gg_rust_manifests() {
   local root
-  root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
-  [ -f "$root/Cargo.toml" ]
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  # Shallowest first, so an outer manifest is seen before anything under it.
+  git -C "$root" ls-files -- 'Cargo.toml' '*/Cargo.toml' \
+    | awk -F/ '{ print NF "\t" $0 }' | LC_ALL=C sort -n -k1,1 -k2 | cut -f2- \
+    | awk -v root="$root" '
+    {
+      dir = $0; sub(/\/?Cargo\.toml$/, "", dir)
+      nested = 0
+      for (i = 1; i <= n; i++) {
+        if (outer[i] == "" || index(dir "/", outer[i] "/") == 1) { nested = 1; break }
+      }
+      if (nested) next
+      if ((getline line < (root "/" $0)) < 0) next   # tracked but deleted: skip
+      close(root "/" $0)
+      outer[++n] = dir
+      print $0
+    }'
+}
+
+# True if the repo holds a Cargo project anywhere (see gg_rust_manifests).
+gg_is_rust() {
+  [ -n "$(gg_rust_manifests)" ]
 }
 
 # Run cargo via the rustup SHIM (`~/.cargo/bin/cargo`) so a repo's

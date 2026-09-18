@@ -27,7 +27,13 @@ unstaged=$(git diff --name-only --diff-filter=ACMD -- '*.rs')
 
 # Format via gg_cargo (the rustup shim), which honors rust-toolchain.toml so it
 # matches CI. If cargo isn't available, don't block — just skip.
-( cd "$root" && gg_cargo fmt ) || { echo "github-guard: 'cargo fmt' skipped/failed — not blocking" >&2; exit 0; }
+# Once per Cargo project -- the root crate, or each one in a subdirectory when
+# there is none at the root (gg_rust_manifests). From the project's own
+# directory, so its rust-toolchain.toml is the one rustup reads.
+while IFS= read -r manifest; do
+  ( cd "$root/$(dirname "$manifest")" && gg_cargo fmt ) \
+    || { echo "github-guard: 'cargo fmt' skipped/failed in $(dirname "$manifest") — not blocking" >&2; exit 0; }
+done < <(gg_rust_manifests)
 
 printf '%s\n' "$staged" | while IFS= read -r f; do
   [ -n "$f" ] || continue

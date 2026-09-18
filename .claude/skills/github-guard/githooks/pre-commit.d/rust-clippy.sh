@@ -37,9 +37,16 @@ done < <(git -C "$root" ls-files '*Cargo.toml' 'Cargo.toml')
 
 # Run via gg_cargo (the rustup shim), which honors rust-toolchain.toml so local
 # clippy == CI clippy. rc=2 means no cargo at all → skip rather than block.
-rc=0; ( cd "$root" && gg_cargo clippy --all-targets -- -D warnings ); rc=$?
-if [ "$rc" = 2 ]; then exit 0; fi
-if [ "$rc" != 0 ]; then
+# Once per Cargo project (gg_rust_manifests), from the project's own directory
+# so its rust-toolchain.toml is honoured. Every project is linted before the
+# verdict, so one commit reports all of them.
+failed=0
+while IFS= read -r manifest; do
+  rc=0; ( cd "$root/$(dirname "$manifest")" && gg_cargo clippy --all-targets -- -D warnings ); rc=$?
+  if [ "$rc" = 2 ]; then exit 0; fi
+  if [ "$rc" != 0 ]; then failed=1; fi
+done < <(gg_rust_manifests)
+if [ "$failed" != 0 ]; then
   echo "github-guard: clippy found issues above — fix them, or bypass once with: git commit --no-verify" >&2
   exit 1
 fi

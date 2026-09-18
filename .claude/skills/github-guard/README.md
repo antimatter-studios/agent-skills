@@ -193,9 +193,9 @@ avoided is gone anyway, since the installed copy is no longer a committed one.
 | `git-block-large-files` | pre-commit | yes | Blocks staged files over a limit (default 10 MiB, `GITHUB_GUARD_MAX_FILE_MB`) unless LFS-tracked. |
 | `git-changelog` | pre-push | yes | On a version-tag push, requires the release documented in CHANGELOG.md / README changelog (≤10 in README + link). Self-gates if no changelog. |
 | `git-tags-on-main` | pre-push | yes | Blocks pushing a **tag** whose commit isn't on the default branch (`main`) — release tags must mark a commit that landed on main, not one stranded on a feature/pre-squash line. Purely local; peels annotated tags. |
-| `rust-fmt` | pre-commit | no | `cargo fmt` then re-stage. Cargo projects only. |
-| `rust-clippy` | pre-commit | yes | `cargo clippy --all-targets -- -D warnings`. Cargo projects only; skips (doesn't block) when a `path=` sibling dep isn't checked out. |
-| `rust-deps-pinned` | pre-commit | yes | Reproducible-release gate: blocks a floating workflow clone/`checkout` of a same-owner sibling repo (no `--branch`/`ref:`), and a `Cargo.lock` that's missing/version-drifted/stale. Cargo projects only; fail-open when cargo/siblings unavailable. |
+| `rust-fmt` | pre-commit | no | `cargo fmt` then re-stage. Cargo projects only: the root crate, or each crate in a subdirectory (`runner/Cargo.toml`) when there is none at the root. |
+| `rust-clippy` | pre-commit | yes | `cargo clippy --all-targets -- -D warnings`, once per Cargo project (the root crate, or each crate in a subdirectory when there is none at the root); skips (doesn't block) when a `path=` sibling dep isn't checked out. |
+| `rust-deps-pinned` | pre-commit | yes | Reproducible-release gate: blocks a floating workflow clone/`checkout` of a same-owner sibling repo (no `--branch`/`ref:`), and a `Cargo.lock` that's missing/version-drifted/stale. Reads the root `Cargo.toml` only; fail-open when cargo/siblings unavailable. |
 
 Every guard **self-gates**: `rust-*` skip without a `Cargo.toml`; `github-*`
 skip on repos you don't own or non-GitHub remotes; the path guards do nothing

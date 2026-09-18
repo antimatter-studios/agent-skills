@@ -96,13 +96,14 @@ self-selecting at runtime — no per-project config.
   `main` can't be resolved locally. Git has no `git tag` creation hook, so the
   push is the enforcement point.
 - **`rust-fmt`** (pre-commit) — runs `cargo fmt` and re-stages the staged files;
-  Cargo projects only; never blocks (auto-fixes layout).
+  Cargo projects only (the root crate, or each crate in a subdirectory such as
+  `runner/` when there is none at the root); never blocks (auto-fixes layout).
 - **`rust-clippy`** (pre-commit) — `cargo clippy --all-targets -- -D warnings`;
-  Cargo projects only; blocks on lint failures. Skips (never blocks) when a
+  once per Cargo project, found the same way; blocks on lint failures. Skips (never blocks) when a
   `path=` sibling dependency isn't checked out — CI, which has every sibling,
   is the backstop.
-- **`rust-deps-pinned`** (pre-commit) — reproducible-release gate; Cargo projects
-  only; blocks on: a workflow that floating-clones or `actions/checkout`s a
+- **`rust-deps-pinned`** (pre-commit) — reproducible-release gate; reads the
+  root `Cargo.toml` only; blocks on: a workflow that floating-clones or `actions/checkout`s a
   **same-owner sibling repo** without a pinned `--branch`/`ref:`; a `Cargo.lock`
   that's tracked-but-missing, version-drifted from `Cargo.toml`, or reported
   stale by `cargo metadata --locked`. Fail-open when cargo or a path-dep sibling

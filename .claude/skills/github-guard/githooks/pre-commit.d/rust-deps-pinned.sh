@@ -26,6 +26,10 @@ dir=$(cd "$(dirname "$0")/.." && pwd)   # the hooks dir
 gg_is_rust || exit 0
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$root" || exit 0
+# The pinning rules read the ROOT Cargo.toml and Cargo.lock -- the crate this
+# repo releases. A repo whose only Cargo project is in a subdirectory (a tool
+# under runner/) has no root manifest, and nothing here to check.
+[ -f Cargo.toml ] || exit 0
 fail=0
 
 # ── 1 & 2. no FLOATING fetch of a sibling repo (same owner) in any workflow ──
