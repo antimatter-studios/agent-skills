@@ -35,6 +35,11 @@ rel=${PWD#"$REPO"}; rel=${rel#/}; [ -n "$rel" ] || rel=.
 printf '%s %s\n' "$rel" "$1" >> "$CALLS"
 if [ "$1" = clippy ]; then
   for d in ${CLIPPY_FAILS:-}; do [ "$d" = "$rel" ] && { echo "warning: stub lint in $rel"; exit 101; }; done
+  [ "${CLIPPY_EXIT:-0}" = 0 ] || { echo "warning: cargo exited ${CLIPPY_EXIT}"; exit "$CLIPPY_EXIT"; }
+fi
+if [ "$1" = metadata ] && [ "${METADATA_EXIT:-0}" != 0 ]; then
+  echo 'the lock file needs to be updated' >&2
+  exit "$METADATA_EXIT"
 fi
 exit 0
 STUB
@@ -90,6 +95,20 @@ is "$rc" "1" "a lint failure in one project blocks the commit"
 is "$(cat "$calls")" "a clippy
 b clippy" "and the other project is still linted"
 case "$out" in *"clippy found issues"*) ok "the verdict is printed once" ;; *) bad "no verdict (output: $out)" ;; esac
+
+# A running cargo can itself exit 2; only absence of cargo may skip clippy.
+setup; crate .
+out=$(CLIPPY_EXIT=2 run pre-commit.d/rust-clippy.sh); rc=$?
+is "$rc" "1" "cargo clippy exit 2 blocks rather than looking absent"
+case "$out" in *"clippy found issues"*) ok "the cargo failure is reported" ;; *) bad "cargo exit 2 was hidden (output: $out)" ;; esac
+
+# The second reader of the sentinel must still notice a real stale lock.
+setup; crate .
+printf '[[package]]\nname = "c%s"\nversion = "0.1.0"\n' "$n" > "$repo/Cargo.lock"
+git -C "$repo" add Cargo.lock
+out=$(METADATA_EXIT=2 run pre-commit.d/rust-deps-pinned.sh); rc=$?
+is "$rc" "1" "cargo metadata exit 2 with a stale lock blocks"
+case "$out" in *"Cargo.lock is STALE"*) ok "the stale-lock reason is reported" ;; *) bad "stale lock was hidden (output: $out)" ;; esac
 
 # --- no Cargo project ----------------------------------------------------------
 setup; printf 'x\n' > "$repo/README"; git -C "$repo" add README

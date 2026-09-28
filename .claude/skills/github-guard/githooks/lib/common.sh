@@ -239,7 +239,7 @@ gg_is_rust() {
 # the same toolchain as CI. A bare `cargo` can be Homebrew's, which ignores the
 # pin entirely; the shim is the rustup proxy and respects it (installing the
 # pinned toolchain on first use, as rustup intends). Falls back to whatever
-# `cargo` is on PATH if the shim isn't present; returns 2 if there's no cargo
+# `cargo` is on PATH if the shim isn't present; returns 127 if there's no cargo
 # at all (callers treat that as "skip, don't block").
 gg_cargo() {
   local shim="$HOME/.cargo/bin/cargo"
@@ -248,6 +248,6 @@ gg_cargo() {
   elif command -v cargo >/dev/null 2>&1; then
     cargo "$@"
   else
-    return 2
+    return 127
   fi
 }
