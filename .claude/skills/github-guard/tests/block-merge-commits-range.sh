@@ -139,9 +139,46 @@ check "new branch off a merged main is not blocked" 0 "$rc" "$out"
 # ---------------------------------------------------------------------
 d="$root/case4"; build_repo "$d"
 zero=0000000000000000000000000000000000000000
+git -C "$d/work" remote remove origin   # no server query is needed for a deletion
 out=$(run_guard "$d" "(delete) $zero refs/heads/gone $(cd "$d/work" && git rev-parse main)")
 rc=$?
 check "branch deletion is not blocked" 0 "$rc" "$out"
+
+# ---------------------------------------------------------------------
+# Case 5 — a remote-tracking ref left behind after a server-side deletion
+# must not hide a merge commit this push would reintroduce.
+# ---------------------------------------------------------------------
+d="$root/case5"; build_repo "$d"
+(
+    cd "$d/work"
+    git checkout -q -b feature main
+    git commit -q --allow-empty -m "feature work"
+    git push -q origin feature
+    old_tip=$(git rev-parse feature)
+    git checkout -q -b topic
+    git commit -q --allow-empty -m "topic work"
+    git checkout -q feature
+    git merge -q --no-ff topic -m "merge topic into feature"
+    new_tip=$(git rev-parse feature)
+    git push -q origin HEAD:refs/heads/temporary
+    git fetch -q origin
+    git -C "$d/remote.git" update-ref -d refs/heads/temporary
+    git show-ref --verify --quiet refs/remotes/origin/temporary || exit 2
+    printf '%s %s\n' "$old_tip" "$new_tip" > "$d/shas"
+)
+read -r old_tip new_tip < "$d/shas"
+out=$(run_guard "$d" "refs/heads/feature $new_tip refs/heads/feature $old_tip")
+rc=$?
+check "stale remote-tracking ref cannot hide an introduced merge" 1 "$rc" "$out"
+
+# A push with no verified remote view cannot safely declare a merge published.
+d="$root/case6"; build_repo "$d"
+git -C "$d/work" remote remove origin
+new_tip=$(git -C "$d/work" rev-parse main)
+out=$(run_guard "$d" "refs/heads/main $new_tip refs/heads/main $zero")
+rc=$?
+check "an unavailable remote blocks an unverified push" 1 "$rc" "$out"
+case "$out" in *'cannot verify'*) check "the missing remote is explained" yes yes ;; *) check "the missing remote is explained" yes no "$out" ;; esac
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
