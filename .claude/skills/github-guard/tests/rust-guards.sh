@@ -33,7 +33,13 @@ cat > "$bin/cargo" <<'STUB'
 #!/usr/bin/env bash
 rel=${PWD#"$REPO"}; rel=${rel#/}; [ -n "$rel" ] || rel=.
 printf '%s %s\n' "$rel" "$1" >> "$CALLS"
+[ -z "${CARGO_ARGS:-}" ] || printf '%s\n' "$*" >> "$CARGO_ARGS"
 if [ "$1" = clippy ]; then
+  if [ -n "${MUTATE_LOCK:-}" ]; then
+    locked=0
+    for arg in "$@"; do [ "$arg" != --locked ] || locked=1; done
+    [ "$locked" = 1 ] || printf 'rewritten by unlocked cargo\n' > "$MUTATE_LOCK"
+  fi
   for d in ${CLIPPY_FAILS:-}; do [ "$d" = "$rel" ] && { echo "warning: stub lint in $rel"; exit 101; }; done
   [ "${CLIPPY_EXIT:-0}" = 0 ] || { echo "warning: cargo exited ${CLIPPY_EXIT}"; exit "$CLIPPY_EXIT"; }
 fi
@@ -62,7 +68,8 @@ crate() {  # crate DIR -- a tracked Cargo.toml and one staged .rs file under DIR
 }
 run() {
   ( cd "$repo" && HOME="$home" PATH="$bin:$PATH" REPO="$(pwd -P)" CALLS="$calls" \
-      CLIPPY_FAILS="${CLIPPY_FAILS:-}" "$G/$1" 2>&1 )
+      CLIPPY_FAILS="${CLIPPY_FAILS:-}" MUTATE_LOCK="${MUTATE_LOCK:-}" \
+      CARGO_ARGS="${CARGO_ARGS:-}" "$G/$1" 2>&1 )
 }
 manifests() { ( cd "$repo" && . "$G/lib/common.sh" && gg_rust_manifests ); }
 
@@ -73,6 +80,18 @@ setup; crate .; crate fuzz; crate member/inner
 is "$(manifests)" "Cargo.toml" "a root crate is the only project; fuzz/ and members are under it"
 run pre-commit.d/rust-clippy.sh >/dev/null; rc=$?
 is "$rc $(cat "$calls")" "0 . clippy" "clippy runs once, at the root, as before"
+
+# An unlocked cargo invocation may re-resolve a path dependency and rewrite
+# Cargo.lock before rust-deps-pinned runs. The stub reproduces that side effect.
+setup; crate .
+printf 'the staged lock\n' > "$repo/Cargo.lock"
+git -C "$repo" add Cargo.lock
+args="$root/cargo-args"; : > "$args"
+MUTATE_LOCK="$repo/Cargo.lock" CARGO_ARGS="$args" run pre-commit.d/rust-clippy.sh >/dev/null; rc=$?
+is "$rc" 0 'clippy accepts a locked Cargo project'
+is "$(cat "$repo/Cargo.lock")" 'the staged lock' 'clippy does not rewrite an unstaged lock'
+is "$(cat "$args")" 'clippy --locked --all-targets -- -D warnings' 'clippy asks cargo to keep the lock fixed'
+
 : > "$calls"; run pre-commit.d/rust-fmt.sh >/dev/null
 is "$(cat "$calls")" ". fmt" "fmt runs once, at the root, as before"
 

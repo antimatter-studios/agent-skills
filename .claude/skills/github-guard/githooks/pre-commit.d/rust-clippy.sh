@@ -37,12 +37,14 @@ done < <(git -C "$root" ls-files '*Cargo.toml' 'Cargo.toml')
 
 # Run via gg_cargo (the rustup shim), which honors rust-toolchain.toml so local
 # clippy == CI clippy. rc=127 means no cargo at all → skip rather than block.
+# --locked prevents a path-dependency checkout from rewriting Cargo.lock in
+# this hook, then making the later dependency guard reject the commit.
 # Once per Cargo project (gg_rust_manifests), from the project's own directory
 # so its rust-toolchain.toml is honoured. Every project is linted before the
 # verdict, so one commit reports all of them.
 failed=0
 while IFS= read -r manifest; do
-  rc=0; ( cd "$root/$(dirname "$manifest")" && gg_cargo clippy --all-targets -- -D warnings ); rc=$?
+  rc=0; ( cd "$root/$(dirname "$manifest")" && gg_cargo clippy --locked --all-targets -- -D warnings ); rc=$?
   if [ "$rc" = 127 ]; then exit 0; fi
   if [ "$rc" != 0 ]; then failed=1; fi
 done < <(gg_rust_manifests)
