@@ -26,19 +26,38 @@ jobs:
       # extensionless by necessity, so a name-based rule either misses the
       # dispatchers or sweeps up data files that live beside them —
       # the old extensionless required-checks declaration was linted as shell on the first run here.
+      #
+      # The shebang also names the language, and that is the split: a
+      # `#!/usr/bin/env python3` file handed to `bash -n` is a syntax error on
+      # its first regex. A shebang naming neither is refused, not left
+      # unchecked.
       - name: Collect scripts
         run: |
           set -euo pipefail
-          find . -path ./.git -prune -o -type f -print \
-          | while IFS= read -r f; do
-              IFS= read -r first < "$f" 2>/dev/null || continue
-              case "$first" in '#!'*) printf '%s\0' "$f" ;; esac
-            done > scripts.z
-          tr '\0' '\n' < scripts.z | sed 's/^/  /'
+          : > scripts.z
+          : > python.z
+          find . -path ./.git -prune -o -type f -print > files.txt
+          while IFS= read -r f; do
+            IFS= read -r first < "$f" 2>/dev/null || continue
+            case "$first" in
+              '#!'*python*) printf '%s\0' "$f" >> python.z ;;
+              '#!'*bash*|'#!'*/sh|'#!'*' sh') printf '%s\0' "$f" >> scripts.z ;;
+              '#!'*) echo "::error file=$f::no syntax check for shebang: $first"; exit 1 ;;
+            esac
+          done < files.txt
+          rm files.txt
+          echo "shell:"; tr '\0' '\n' < scripts.z | sed 's/^/  /'
+          echo "python:"; tr '\0' '\n' < python.z | sed 's/^/  /'
           test -s scripts.z
 
       - name: Syntax
-        run: xargs -0 -n1 bash -n < scripts.z && echo "all scripts parse"
+        run: |
+          set -euo pipefail
+          xargs -0 -n1 bash -n < scripts.z
+          if [ -s python.z ]; then
+            xargs -0 python3 -m py_compile < python.z
+          fi
+          echo "all scripts parse"
 
       - name: ShellCheck
         run: |
