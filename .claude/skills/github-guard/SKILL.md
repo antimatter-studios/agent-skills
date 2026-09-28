@@ -106,7 +106,10 @@ self-selecting at runtime — no per-project config.
   root `Cargo.toml` only; blocks on: a workflow that floating-clones or `actions/checkout`s a
   **same-owner sibling repo** without a pinned `--branch`/`ref:`; a `Cargo.lock`
   that's tracked-but-missing, version-drifted from `Cargo.toml`, or reported
-  stale by `cargo metadata --locked`. Fail-open when cargo or a path-dep sibling
+  stale by `cargo metadata --locked`; and a `Cargo.lock` recording a path-dep
+  sibling at a version that any workflow fetch of that sibling (clone,
+  `actions/checkout`, release tarball) does not pin. Reads the staged files, not
+  the working tree. Fail-open when cargo or a path-dep sibling
   isn't available (fresh clone / empty offline cache) — CI's `--locked` is the
   final backstop.
 
@@ -454,12 +457,12 @@ and does not block `tmpl/`.
 
 - `tests/rust-deps-pinned-sibling-lock.sh [githooks-dir]` — the sibling-clone
   half of `rust-deps-pinned.sh`, in both shapes of repository: with a chores file
-  and without one. Each case asserts the per-file diagnostic by its own wording,
-  because the section has an older existential check in front of it that fails
-  for a different reason and would otherwise satisfy an exit-status assertion.
-  That is not hypothetical: selecting the chores file with `FNR == NR` made the
-  per-file pass inert in every repo that has no chores file, and the guard still
-  looked healthy because the existential check kept firing.
+  and without one, plus one case per reported blind spot (#65-#68, #34): a pin
+  only in a checkout block or a continued clone, a step `env:` below its `run:`,
+  an index that differs from the working tree, `--branch=TAG`, a tarball, quoted
+  scalars and a long `with:` block. The existential fallback that used to pass a
+  sibling whenever any token matched the lock is gone, so an exit status now
+  means the per-fetch comparison decided it.
 - `tests/language-guards.sh [githooks-dir]` — the path guards' declarations
   (file, per-clone config and its precedence, quoting, a malformed file blocking
   `git-block-private-paths` but not `generated-normalise`, old names unread) and

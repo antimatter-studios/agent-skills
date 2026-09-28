@@ -195,7 +195,7 @@ avoided is gone anyway, since the installed copy is no longer a committed one.
 | `git-tags-on-main` | pre-push | yes | Blocks pushing a **tag** whose commit isn't on the default branch (`main`) — release tags must mark a commit that landed on main, not one stranded on a feature/pre-squash line. Purely local; peels annotated tags. |
 | `rust-fmt` | pre-commit | no | `cargo fmt` then re-stage. Cargo projects only: the root crate, or each crate in a subdirectory (`runner/Cargo.toml`) when there is none at the root. |
 | `rust-clippy` | pre-commit | yes | `cargo clippy --all-targets -- -D warnings`, once per Cargo project (the root crate, or each crate in a subdirectory when there is none at the root); skips (doesn't block) when a `path=` sibling dep isn't checked out. |
-| `rust-deps-pinned` | pre-commit | yes | Reproducible-release gate: blocks a floating workflow clone/`checkout` of a same-owner sibling repo (no `--branch`/`ref:`), and a `Cargo.lock` that's missing/version-drifted/stale. Reads the root `Cargo.toml` only; fail-open when cargo/siblings unavailable. |
+| `rust-deps-pinned` | pre-commit | yes | Reproducible-release gate: blocks a floating workflow clone/`checkout` of a same-owner sibling repo (no `--branch`/`ref:`), a `Cargo.lock` that's missing/version-drifted/stale, and a `Cargo.lock` whose path-dep sibling version differs from any workflow fetch (clone, checkout, tarball) of that sibling. Reads the staged files and the root `Cargo.toml` only; fail-open when cargo/siblings unavailable. |
 
 Every guard **self-gates**: `rust-*` skip without a `Cargo.toml`; `github-*`
 skip on repos you don't own or non-GitHub remotes; the path guards do nothing
