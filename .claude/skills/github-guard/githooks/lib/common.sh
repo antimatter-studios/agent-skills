@@ -56,6 +56,15 @@ gg_user_owns() {
   [ "$role" = "admin" ]
 }
 
+# True while the local walls around the default branch are armed: github-protect-main
+# found that GitHub cannot protect this repository's default branch (branch
+# protection on a private repository needs a paid plan) and recorded it here,
+# in the clone's own git config, which no branch can write. It clears the
+# record the first time protection turns out to be available again. The walls
+# (git-no-commit-on-main, git-no-push-to-main) self-gate on this: where the
+# server enforces "pull requests only", they stay out of the way.
+gg_walls_armed() { [ "$(git config --get github-guard.protection 2>/dev/null)" = unavailable ]; }
+
 # NOTE: deliberately no throttling. The network guards run only on commit/push
 # — sparse, event-driven, a few calls each, nowhere near the 5000/hour API
 # limit — so the ~1-2s they add to the occasional commit isn't worth a

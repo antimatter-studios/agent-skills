@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# github-guard hook: reference-transaction
+#
+# Fires:    Whenever git updates a ref — including a fast-forward, which creates
+#           no commit and so fires no commit hook at all. Called with "prepared",
+#           "committed" or "aborted"; only "prepared" can refuse.
+# Use for:  Refusing a ref move no other hook can see (git-no-ff-main).
+# Blocking: yes, at "prepared" (non-zero aborts the whole transaction)
+#
+# NOT INSTALLED AS A HOOK. This hook fires on nearly every ref update, and git
+# prints a hint on every one of them for a hook file that exists but is not
+# executable — so github-guard ships this dispatcher here, as a template, and
+# not as .git/hooks/reference-transaction. Arm it per clone, together with the
+# guard, when you need it:
+#
+#   h=$(git rev-parse --git-common-dir)/hooks
+#   cp "$h/lib/reference-transaction.dispatcher" "$h/reference-transaction"
+#   chmod +x "$h/reference-transaction" "$h/reference-transaction.d/git-no-ff-main.sh"
+#
+# Re-running the installer leaves both alone: it ships no top-level
+# reference-transaction, and it never changes the mode of a file it ships
+# without the exec bit.
+#
+# Dispatcher: runs every executable script in  reference-transaction.d/  in
+# lexical order. Managed by github-guard — edit guards in the .d/ dir, not here.
+d=$(cd "$(dirname "$0")" && pwd)
+exec "$d/lib/run-guards.sh" "$(basename "$0")" "$@"
