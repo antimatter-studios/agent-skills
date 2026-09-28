@@ -208,12 +208,12 @@ elif [ -f Cargo.lock ]; then
   done <<< "$tomls"
   if [ "$ext_path_dep" = 0 ]; then
     # BLOCK only on the staleness signal; any other failure (empty offline cache,
-    # etc.) is an environment limitation → skip. gg_cargo returns 2 with no cargo.
+    # etc.) is an environment limitation → skip. gg_cargo returns 127 with no cargo.
     if err=$(cd "$root" && gg_cargo metadata --locked --offline --format-version 1 2>&1 >/dev/null); then
       : # lock is fresh
     else
       rc=$?
-      if [ "$rc" != 2 ] && printf '%s\n' "$err" | grep -qiE 'cannot update the lock file|needs to be updated|out.?of.?date'; then
+      if [ "$rc" != 127 ] && printf '%s\n' "$err" | grep -qiE 'cannot update the lock file|needs to be updated|out.?of.?date'; then
         echo "[deps] Cargo.lock is STALE — it no longer matches Cargo.toml:" >&2
         printf '%s\n' "$err" | grep -iE 'cannot update the lock file|needs to be updated|out.?of.?date' | head -1 | sed 's/^/       /' >&2
         echo "       Fix: cargo generate-lockfile && git add Cargo.lock" >&2
