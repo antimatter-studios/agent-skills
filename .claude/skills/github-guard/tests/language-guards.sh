@@ -22,7 +22,15 @@ G=${1:-$(cd "$(dirname "$0")/../githooks" && pwd)}
 root=$(mktemp -d)
 trap 'rm -rf "$root"' EXIT
 bin="$root/bin"
-mkdir -p "$bin"
+host_bin="$root/host-bin"
+isolated_bin="$root/isolated-bin"
+mkdir -p "$bin" "$host_bin" "$isolated_bin"
+# An absent-tool case must not find a real tool later on the host's PATH.
+# Keep only the interpreters and commands these two guards need to reach the
+# branch under test; their absolute targets do not add their directories to PATH.
+for tool in bash git dirname; do
+  ln -s "$(command -v "$tool")" "$isolated_bin/$tool"
+done
 pass=0; fail=0; n=0
 
 ok()  { pass=$((pass + 1)); printf '  ok    %s\n' "$1"; }
@@ -67,6 +75,7 @@ setup() {
   git -C "$repo" config commit.gpgsign false
 }
 run() { ( cd "$repo" && PATH="$bin:$PATH" "$G/$1" 2>&1 ); }
+run_without_tool() { ( cd "$repo" && PATH="$isolated_bin" "$G/$1" 2>&1 ); }
 
 printf 'language guards (%s)\n' "$G"
 
@@ -112,12 +121,13 @@ run pre-commit.d/go-fmt.sh >/dev/null
 staged_is a.go "package main
 FORMATTED-BY-gofumpt" "gofumpt is preferred over gofmt when installed"
 rm -f "$bin/gofumpt"
+cp "$bin/gofmt" "$host_bin/gofmt"
 
 setup
 printf 'package main\nUNFORMATTED\n' > "$repo/a.go"
 git -C "$repo" add a.go
 mv "$bin/gofmt" "$root/gofmt.hidden"
-out=$(run pre-commit.d/go-fmt.sh); rc=$?
+out=$(PATH="$host_bin:$PATH" run_without_tool pre-commit.d/go-fmt.sh); rc=$?
 staged_is a.go "package main
 UNFORMATTED" "with no formatter installed nothing is rewritten"
 [ "$rc" = 0 ] && ok "a missing formatter does not block" || bad "missing formatter exited $rc"
@@ -162,7 +172,8 @@ setup
 printf 'x = 1\n' > "$repo/a.py"
 git -C "$repo" add a.py
 mv "$bin/ruff" "$root/ruff.hidden"
-out=$(run pre-commit.d/python-lint.sh); rc=$?
+cp "$root/ruff.hidden" "$host_bin/ruff"
+out=$(PATH="$host_bin:$PATH" run_without_tool pre-commit.d/python-lint.sh); rc=$?
 [ "$rc" = 0 ] && ok "no ruff installed does not block" || bad "missing ruff exited $rc"
 says "not found" "$out" "and says why it skipped"
 mv "$root/ruff.hidden" "$bin/ruff"
