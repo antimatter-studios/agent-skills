@@ -72,9 +72,6 @@ if [ "${1:-}" = "notes" ]; then
   exit 0
 fi
 
-# Self-gate: repos without a changelog convention are unaffected.
-gg_has_changelog || exit 0
-
 # Extract the README "changelog" section: everything after its heading up to the
 # next level-2 (`## `) heading. (Version entries inside are `### …`, which don't
 # end it.)
@@ -110,6 +107,8 @@ while read -r local_ref local_sha _remote_ref _remote_sha; do
 
   have_cl=0; [ -n "$changelog" ] && have_cl=1
   have_rcl=0; [ -n "$readme_cl" ] && have_rcl=1
+  # Gate on the tagged tree, not the current checkout: an older release tag
+  # can still contain a changelog after the working tree has removed it.
   [ "$have_cl" = 1 ] || [ "$have_rcl" = 1 ] || continue               # no changelog convention → skip
 
   if [ "$have_cl" = 1 ] && ! printf '%s\n' "$changelog" | heading_has_version "$tag" "$ver_re"; then

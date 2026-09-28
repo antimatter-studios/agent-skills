@@ -87,8 +87,8 @@ self-selecting at runtime — no per-project config.
 - **`git-changelog`** (pre-push) — when pushing a version tag, requires the
   release to be documented: a section for the tag in CHANGELOG.md and/or the
   README changelog section (≤10 versions in the README + a link to
-  CHANGELOG.md). Self-gates via `gg_has_changelog` — repos with no changelog are
-  unaffected.
+  CHANGELOG.md). It checks the tagged commit's files; a tag whose tree has no
+  changelog convention is unaffected.
 - **`git-tags-on-main`** (pre-push) — hard-blocks pushing a tag whose target
   commit is not contained in the default branch (`main`); release tags must mark
   a commit that landed on main, never one stranded on a feature or pre-squash
