@@ -55,22 +55,28 @@ fi
 # Checks that have ACTUALLY PASSED on the default branch — the gate for ADDING a
 # newly-discovered check to REQUIRED. A check discovered from PR runs is only
 # eligible to become required once it has concluded `success` on the default
-# branch's latest commit at least once; a check that has only ever been
+# branch within a recent commit window; a check that has only ever been
 # pending/failure is NOT added. Without this gate the additive union below would
 # auto-require a brand-new or still-red check (e.g. a just-landed "E2E (full
 # topology)" that has never gone green on main), and because we also set
 # enforce_admins + strict that check would block EVERY merge — no one, not even
 # an admin, could merge until a check that has never passed somehow passes. We
 # never STRIP already-required checks (the union preserves `current`), so this
-# gates only the additive step. Query the default branch HEAD's check-runs and
-# keep the github-actions ones that concluded `success`. jq required; without it
-# `passed` stays '[]' so nothing new is added and `current` is preserved
-# (fail-open — never blocks). Empty/failed query behaves the same: add nothing.
+# gates only the additive step. HEAD alone misses a conditional job when its
+# condition was false on that commit, so inspect up to 30 recent main commits.
+# The bound limits API calls on every commit; a previously-required check stays
+# required even if its last success is older. jq required; without it `passed`
+# stays '[]' so nothing new is added and `current` is preserved (fail-open).
 passed='[]'
 if command -v jq >/dev/null 2>&1; then
-  passed=$(gh api --paginate "repos/$slug/commits/$branch/check-runs?per_page=100" \
-    --jq '.check_runs[]? | select(.app.slug=="github-actions") | select(.conclusion=="success") | .name' 2>/dev/null \
-    | jq -sRc 'split("\n") | map(select(length > 0)) | unique')
+  recent_commits=$(gh api "repos/$slug/commits?sha=$branch&per_page=30" \
+    --jq '.[].sha' 2>/dev/null) || recent_commits=''
+  passed=$(
+    for sha in $recent_commits; do
+      gh api --paginate "repos/$slug/commits/$sha/check-runs?per_page=100" \
+        --jq '.check_runs[]? | select(.app.slug=="github-actions") | select(.conclusion=="success") | .name' 2>/dev/null
+    done | jq -sRc 'split("\n") | map(select(length > 0)) | unique'
+  )
   case "$passed" in '' | null) passed='[]' ;; esac
 fi
 

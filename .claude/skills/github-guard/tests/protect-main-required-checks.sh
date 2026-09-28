@@ -55,6 +55,12 @@ case "$url" in
   user)                       printf '%s\n' "${GH_LOGIN:-testowner}" ;;
   */actions/runs*)            printf '%s\n' "${GH_SUITE_IDS:-1}" ;;
   */check-suites/*)           printf '%s' "${GH_DISCOVERED:-}" ;;
+  */commits\?sha=*)            printf '%s\n' "${GH_RECENT_SHAS:-head}" ;;
+  */commits/older/check-runs*)
+    case "$jqexpr" in
+      *'"success"'*)          printf '%s' "${GH_PASSED_OLDER:-}" ;;
+      *)                      printf '%s' "${GH_HEAD_OLDER:-}" ;;
+    esac ;;
   */commits/*/check-runs*)
     case "$jqexpr" in
       *'"success"'*)          printf '%s' "${GH_PASSED:-}" ;;
@@ -301,6 +307,16 @@ export GH_PASSED=$'test / ubuntu-latest\nE2E (full topology)\n'
 export GH_CURRENT='[]'
 run_case 'names with spaces, slashes and parentheses' $'test / ubuntu-latest\nE2E (full topology)'
 expect_checks '["E2E (full topology)","test / ubuntu-latest"]'
+
+# 19. A conditional job skipped by main HEAD was green on an earlier main
+#     commit. It is eligible for promotion, while a never-green job is not.
+export GH_RECENT_SHAS=$'head\nolder'
+export GH_DISCOVERED=$'CI\nFrontend (vitest)\nNever Green\n'
+export GH_PASSED=$'CI\n'
+export GH_PASSED_OLDER=$'Frontend (vitest)\n'
+export GH_CURRENT='[]'
+run_case 'an earlier main success preserves a conditional check' ABSENT
+expect_checks '["CI","Frontend (vitest)"]'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]
