@@ -141,6 +141,253 @@ printf 'version: "3"\nSIBLING_REF: v0.4.1\n' > "$d/chores.yml"
 ( cd "$d" && git add chores.yml >/dev/null 2>&1 )
 check "a pin declared in chores.yml is resolved and compared" 1 "$(run_guard "$d")" "$d"
 
+# A second workflow beside ci.yml, staged like the first.
+add_workflow() {
+  printf '%s\n' "$3" > "$1/.github/workflows/$2"
+  ( cd "$1" && git add ".github/workflows/$2" >/dev/null 2>&1 )
+}
+
+# A checkout of the sibling into its slot; $1 is the ref line, $2 any with: keys
+# written between repository: and path:.
+checkout_wf() {
+  printf 'jobs:\n  release:\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          repository: x/am-sibling\n          %s\n%s          path: am-sibling\n      - run: cargo test --locked\n' "$1" "$2"
+}
+
+# ── #65: a pin the old line pre-filter could not see ─────────────────────────
+# The pre-filter wanted the sibling's name and a version on ONE physical line;
+# a checkout block and a continued clone never have that, so the parsers that
+# could read them were never reached.
+d="$root/p65a"; make_case "$d" "0.4.1" "$(checkout_wf 'ref: v0.3.7' '')"
+check "#65 a stale checkout-only pin is caught with no *_REF anywhere" 1 "$(run_guard "$d")" "$d"
+
+d="$root/p65b"; make_case "$d" "0.4.1" '
+jobs:
+  release:
+    steps:
+      - run: |
+          git clone --quiet \
+            --branch v0.3.7 \
+            https://github.com/x/am-sibling.git \
+            ../am-sibling'
+check "#65 a stale multi-line git clone is caught" 1 "$(run_guard "$d")" "$d"
+
+d="$root/p65c"; make_case "$d" "0.4.1" '
+jobs:
+  release:
+    steps:
+      - run: |
+          git clone --quiet \
+            --branch v0.4.1 \
+            https://github.com/x/am-sibling.git \
+            ../am-sibling'
+check "#65 a matching multi-line git clone is allowed" 0 "$(run_guard "$d")" "$d"
+
+# ── #66: env resolves by Actions scope (step > job > workflow), not file order ─
+d="$root/p66a"; make_case "$d" "0.4.1" '
+env:
+  SIBLING_REF: v0.4.1
+jobs:
+  release:
+    steps:
+      - run: git clone --branch "$SIBLING_REF" https://github.com/x/am-sibling.git ../am-sibling
+        env:
+          SIBLING_REF: v0.3.7'
+check "#66 a stale step-level env: written below its run: is caught" 1 "$(run_guard "$d")" "$d"
+
+d="$root/p66b"; make_case "$d" "0.4.1" '
+env:
+  SIBLING_REF: v0.3.7
+jobs:
+  release:
+    steps:
+      - run: git clone --branch "$SIBLING_REF" https://github.com/x/am-sibling.git ../am-sibling
+        env:
+          SIBLING_REF: v0.4.1'
+check "#66 a correct step-level env: below its run: overrides a stale workflow value" 0 "$(run_guard "$d")" "$d"
+
+d="$root/p66c"; make_case "$d" "0.4.1" '
+env:
+  SIBLING_REF: v0.3.7
+jobs:
+  release:
+    steps:
+      - run: git clone --branch "$SIBLING_REF" https://github.com/x/am-sibling.git ../am-sibling
+  later:
+    env:
+      SIBLING_REF: v0.4.1
+    steps:
+      - run: true'
+check "#66 a later job redeclaring the variable does not mask the stale one" 1 "$(run_guard "$d")" "$d"
+
+d="$root/p66d"; make_case "$d" "0.4.1" '
+jobs:
+  release:
+    steps:
+      - run: git clone --branch "${{ env.SIBLING_REF }}" https://github.com/x/am-sibling.git ../am-sibling
+    env:
+      SIBLING_REF: v0.3.7
+env:
+  SIBLING_REF: v0.4.1'
+check "#66 a stale job-level env: below the steps beats a later workflow env:" 1 "$(run_guard "$d")" "$d"
+
+# ── #67: the index is judged, not the working tree ───────────────────────────
+d="$root/p67a"; make_case "$d" "0.4.1" '
+jobs:
+  release:
+    steps:
+      - run: git clone --branch v0.3.7 https://github.com/x/am-sibling.git ../am-sibling'
+sed -i.bak 's/v0\.3\.7/v0.4.1/' "$d/.github/workflows/ci.yml" && rm -f "$d/.github/workflows/ci.yml.bak"
+check "#67 a stale staged pin is caught though the working tree is fixed" 1 "$(run_guard "$d")" "$d"
+
+d="$root/p67b"; make_case "$d" "0.4.1" '
+jobs:
+  release:
+    steps:
+      - run: git clone --branch v0.4.1 https://github.com/x/am-sibling.git ../am-sibling'
+sed -i.bak 's/v0\.4\.1/v0.3.7/' "$d/.github/workflows/ci.yml" && rm -f "$d/.github/workflows/ci.yml.bak"
+check "#67 a correct staged pin is allowed though the working tree is stale" 0 "$(run_guard "$d")" "$d"
+
+d="$root/p67c"; make_case "$d" "0.4.1" '
+jobs:
+  release:
+    steps:
+      - run: git clone --branch v0.4.1 https://github.com/x/am-sibling.git ../am-sibling'
+sed -i.bak 's/"0\.4\.1"/"0.4.9"/' "$d/Cargo.lock" && rm -f "$d/Cargo.lock.bak"
+check "#67 an unstaged Cargo.lock rewrite does not block a correct commit" 0 "$(run_guard "$d")" "$d"
+
+d="$root/p67d"; make_case "$d" "0.4.9" '
+jobs:
+  release:
+    steps:
+      - run: git clone --branch v0.4.1 https://github.com/x/am-sibling.git ../am-sibling'
+sed -i.bak 's/"0\.4\.9"/"0.4.1"/' "$d/Cargo.lock" && rm -f "$d/Cargo.lock.bak"
+check "#67 a stale staged Cargo.lock is caught though the working tree is fixed" 1 "$(run_guard "$d")" "$d"
+
+# ── #68: every fetch is compared; --branch=TAG is a pin ──────────────────────
+correct_clone='
+jobs:
+  test:
+    steps:
+      - run: git clone --branch v0.4.1 https://github.com/x/am-sibling.git ../am-sibling'
+
+d="$root/p68a"; make_case "$d" "0.4.1" "$correct_clone"
+add_workflow "$d" release.yml '
+jobs:
+  release:
+    steps:
+      - run: git clone --branch=v0.3.7 https://github.com/x/am-sibling.git ../am-sibling'
+check "#68 a stale --branch=TAG is caught beside a correct pin" 1 "$(run_guard "$d")" "$d"
+
+d="$root/p68b"; make_case "$d" "0.4.1" "$correct_clone"
+add_workflow "$d" release.yml '
+jobs:
+  release:
+    steps:
+      - run: curl -fsSL https://github.com/x/am-sibling/archive/refs/tags/v0.3.7.tar.gz | tar -xz -C .. && mv ../am-sibling-0.3.7 ../am-sibling'
+check "#68 a stale release tarball is caught beside a correct pin" 1 "$(run_guard "$d")" "$d"
+
+d="$root/p68c"; make_case "$d" "0.4.1" "$correct_clone"
+add_workflow "$d" release.yml '
+jobs:
+  release:
+    steps:
+      - run: curl -fsSL "https://github.com/x/am-sibling/archive/refs/tags/v0.4.1.tar.gz" | tar -xz -C ..'
+check "#68 a matching release tarball is allowed" 0 "$(run_guard "$d")" "$d"
+
+d="$root/p68d"; make_case "$d" "0.4.1" '
+env:
+  OTHER_REF: v0.4.1
+jobs:
+  release:
+    steps:
+      - run: git clone --branch "$SIBLING_REF" https://github.com/x/am-sibling.git ../am-sibling'
+check "#68 an unrelated *_REF at the lock version does not excuse an unresolvable pin" 1 "$(run_guard "$d")" "$d"
+
+d="$root/p68e"; make_case "$d" "0.4.1" '
+jobs:
+  release:
+    steps:
+      - run: git clone https://github.com/x/am-sibling.git ../am-sibling'
+check "#68 a clone into the slot with no pin at all is reported, not passed" 1 "$(run_guard "$d")" "$d"
+
+# ── #34 defect 2: quoted scalars and trailing comments ───────────────────────
+d="$root/q1"; make_case "$d" "0.4.1" '
+env:
+  SIBLING_REF: "v0.3.7"
+jobs:
+  release:
+    steps:
+      - run: git clone --branch "$SIBLING_REF" https://github.com/x/am-sibling.git ../am-sibling'
+check "#34-2 a stale double-quoted env value is caught" 1 "$(run_guard "$d")" "$d"
+
+d="$root/q2"; make_case "$d" "0.4.1" '
+env:
+  SIBLING_REF: "v0.4.1"
+jobs:
+  release:
+    steps:
+      - run: git clone --branch "$SIBLING_REF" https://github.com/x/am-sibling.git ../am-sibling'
+check "#34-2 a correct double-quoted env value is allowed" 0 "$(run_guard "$d")" "$d"
+
+d="$root/q3"; make_case "$d" "0.4.1" "
+env:
+  SIBLING_REF: 'v0.4.1'   # the sibling
+jobs:
+  release:
+    steps:
+      - run: git clone --branch \"\$SIBLING_REF\" https://github.com/x/am-sibling.git ../am-sibling"
+check "#34-2 a correct single-quoted, commented env value is allowed" 0 "$(run_guard "$d")" "$d"
+
+d="$root/q4"; make_case "$d" "0.4.1" "$(checkout_wf "ref: 'v0.3.7'" '')"
+sed -i.bak "s@repository: x/am-sibling@repository: \"x/am-sibling\"@; s@path: am-sibling@path: 'am-sibling'@" "$d/.github/workflows/ci.yml"
+rm -f "$d/.github/workflows/ci.yml.bak"; ( cd "$d" && git add -A >/dev/null 2>&1 )
+check "#34-2 a stale checkout with quoted repository/ref/path is caught" 1 "$(run_guard "$d")" "$d"
+
+d="$root/q5"; make_case "$d" "0.4.1" "$(checkout_wf 'ref: "v0.3.7"' '')"
+sed -i.bak "s@repository: x/am-sibling@repository: x/am-sibling   # the sibling@" "$d/.github/workflows/ci.yml"
+rm -f "$d/.github/workflows/ci.yml.bak"; ( cd "$d" && git add -A >/dev/null 2>&1 )
+check "#34-2 a stale checkout with a comment after repository: is caught" 1 "$(run_guard "$d")" "$d"
+
+d="$root/q6"; make_case "$d" "0.4.1" "$(checkout_wf "ref: 'v0.4.1'" '')"
+sed -i.bak "s@repository: x/am-sibling@repository: \"x/am-sibling\" # ok@; s@path: am-sibling@path: \"am-sibling\"@" "$d/.github/workflows/ci.yml"
+rm -f "$d/.github/workflows/ci.yml.bak"; ( cd "$d" && git add -A >/dev/null 2>&1 )
+check "#34-2 a correct fully-quoted checkout is allowed" 0 "$(run_guard "$d")" "$d"
+
+d="$root/q7"; make_case "$d" "0.4.1" "$(checkout_wf 'ref: v0.3.7' '')"
+sed -i.bak "s@repository: x/am-sibling@repository: x/am-sibling-extra@" "$d/.github/workflows/ci.yml"
+rm -f "$d/.github/workflows/ci.yml.bak"; ( cd "$d" && git add -A >/dev/null 2>&1 )
+check "#34-2 a checkout of a different repo sharing a prefix is not this sibling" 0 "$(run_guard "$d")" "$d"
+
+# ── #34 defect 3: the checkout block ends on dedent, not after four lines ─────
+four='          fetch-depth: 0
+          submodules: true
+          persist-credentials: false
+          clean: true
+'
+d="$root/w4"; make_case "$d" "0.4.1" "$(checkout_wf 'ref: v0.3.7' "$four")"
+check "#34-3 a stale ref behind four with: keys is caught" 1 "$(run_guard "$d")" "$d"
+
+d="$root/w5"; make_case "$d" "0.4.1" "$(checkout_wf 'ref: v0.3.7' "$four          lfs: false
+")"
+check "#34-3 a stale ref behind five with: keys is caught" 1 "$(run_guard "$d")" "$d"
+
+d="$root/w6"; make_case "$d" "0.4.1" "$(checkout_wf 'ref: v0.4.1' "$four          lfs: false
+")"
+check "#34-3 a correct ref behind five with: keys is allowed" 0 "$(run_guard "$d")" "$d"
+
+d="$root/w7"; make_case "$d" "0.4.1" '
+jobs:
+  release:
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: x/am-sibling
+          ref: v0.3.7
+      - uses: actions/checkout@v4
+        with:
+          path: am-sibling'
+check "#34-3 a later step's path: is not attributed to an earlier checkout" 0 "$(run_guard "$d")" "$d"
+
 echo
 if [ "$fail" = 0 ]; then
   echo "rust-deps-pinned-sibling-lock: all $pass checks passed"
