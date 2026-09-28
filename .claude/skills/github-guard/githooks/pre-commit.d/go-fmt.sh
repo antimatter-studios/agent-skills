@@ -24,10 +24,15 @@ staged=$(git diff --cached --name-only --diff-filter=ACM -- '*.go')
 [ -n "$staged" ] || exit 0
 unstaged=$(git diff --name-only --diff-filter=ACMD -- '*.go')
 
-fmt=$(command -v gofumpt) || fmt=$(command -v gofmt) || {
+fmtargs=()
+if fmt=$(command -v gofumpt); then :
+elif fmt=$(command -v gofmt); then fmtargs=(-s)
+else
   echo "github-guard: no gofumpt or gofmt on PATH — go-fmt skipped (not blocking)" >&2
   exit 0
-}
+fi
+fmt_hint=$(basename "$fmt")
+[ ${#fmtargs[@]} -eq 0 ] || fmt_hint="$fmt_hint -s"
 
 printf '%s\n' "$staged" | while IFS= read -r f; do
   [ -n "$f" ] || continue
@@ -37,12 +42,12 @@ printf '%s\n' "$staged" | while IFS= read -r f; do
     # Only worth a notice when formatting would actually change the file;
     # otherwise every commit that touches a work-in-progress file prints a
     # warning about nothing, and warnings nobody needs get tuned out.
-    [ -n "$("$fmt" -l -- "$root/$f" 2>/dev/null)" ] || continue
-    gg_partial_notice go-fmt "$f" "run '$(basename "$fmt") -w' + 'git add'"
+    [ -n "$("$fmt" "${fmtargs[@]}" -l -- "$root/$f" 2>/dev/null)" ] || continue
+    gg_partial_notice go-fmt "$f" "run '$fmt_hint -w' + 'git add'"
     continue
   fi
 
-  [ -n "$("$fmt" -l -- "$root/$f" 2>/dev/null)" ] || continue
-  "$fmt" -w -- "$root/$f" 2>/dev/null && git add -- "$root/$f" 2>/dev/null || true
+  [ -n "$("$fmt" "${fmtargs[@]}" -l -- "$root/$f" 2>/dev/null)" ] || continue
+  "$fmt" "${fmtargs[@]}" -w -- "$root/$f" 2>/dev/null && git add -- "$root/$f" 2>/dev/null || true
 done
 exit 0

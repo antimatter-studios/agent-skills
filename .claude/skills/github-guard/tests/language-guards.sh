@@ -51,14 +51,19 @@ worktree_is() {
 make_formatter() {
   cat > "$bin/$1" <<'STUB'
 #!/usr/bin/env bash
+simplify=false
+[ "${1:-}" = "-s" ] && { simplify=true; shift; }
 mode=$1; shift
 # The guards end their options with `--` before the path, as they must for a
 # file named like a flag. A stub that took $1 literally read "--" as the file,
 # found nothing to format, and the suite then asserted on a no-op.
 [ "${1:-}" = "--" ] && shift
 case "$mode" in
-  -l) grep -ql UNFORMATTED "$1" && printf '%s\n' "$1" ;;
+  -l) if grep -ql UNFORMATTED "$1" || { $simplify && grep -ql '^SIMPLIFY$' "$1"; }; then
+        printf '%s\n' "$1"
+      fi ;;
   -w) tr -d '\r' < "$1" | grep -v '^UNFORMATTED$' > "$1.f" && mv "$1.f" "$1"
+      if $simplify; then grep -v '^SIMPLIFY$' "$1" > "$1.f" && mv "$1.f" "$1"; fi
       printf 'FORMATTED-BY-%s\n' "$(basename "$0")" >> "$1" ;;
 esac
 exit 0
@@ -89,6 +94,15 @@ out=$(run pre-commit.d/go-fmt.sh); rc=$?
 staged_is a.go "package main
 FORMATTED-BY-gofmt" "a fully staged file is formatted AND re-staged"
 [ "$rc" = 0 ] && ok "go-fmt never blocks" || bad "go-fmt exited $rc"
+
+# Plain gofmt needs -s on both the probe and the write. Without it, a file
+# needing only simplification is silently accepted and then fails a stricter CI.
+setup
+printf 'package main\nSIMPLIFY\n' > "$repo/a.go"
+git -C "$repo" add a.go
+run pre-commit.d/go-fmt.sh >/dev/null
+staged_is a.go "package main
+FORMATTED-BY-gofmt" "gofmt fallback simplifies before re-staging"
 
 # The case that matters: half the file is staged, the other half is not.
 setup
