@@ -71,7 +71,24 @@ self-selecting at runtime — no per-project config.
   branch: require a PR, enforced for admins, linear history, no force-push or
   deletion. Owner-only; never blocks. Also keeps **required status checks** in
   sync — auto-discovered from recent `pull_request` runs, or declared explicitly
-  (see below).
+  (see below). Where GitHub refuses (a private repository without a paid plan:
+  403 "Upgrade to GitHub Pro"), it arms the local walls below instead, and stops.
+- **`git-no-commit-on-main`** (pre-commit) and **`git-no-push-to-main`**
+  (pre-push) — hard-block a commit while the default branch is checked out, and
+  any push whose target is the default branch. **Self-gated:** they act only
+  while `github-guard.protection=unavailable` is in the clone's git config, which
+  `github-protect-main` sets when GitHub cannot protect the branch and clears
+  when it can. Where the server enforces "PRs only", they stay out of the way.
+- **`git-no-ff-main`** (reference-transaction, **ships disarmed**) — refuses to
+  move the LOCAL default branch onto commits that are not on the remote
+  (`git merge --ff-only work` on main), allowing syncs (`git pull --ff-only`,
+  `git fetch origin main:main`, confirmed against the remote with one
+  `ls-remote` only on the way to refusing). For clones several people or agents
+  share. `reference-transaction` fires on nearly every ref update and git warns
+  about a hook file it cannot execute, so the dispatcher ships as the template
+  `lib/reference-transaction.dispatcher`; arming is
+  `cp .git/hooks/lib/reference-transaction.dispatcher .git/hooks/reference-transaction`
+  plus `chmod +x` on it and on `reference-transaction.d/git-no-ff-main.sh`.
 - **`git-block-merge-commit`** (pre-merge-commit) — hard-blocks creating a merge
   commit locally.
 - **`git-block-merge-commits`** (pre-push) — hard-blocks pushing any range that
@@ -431,6 +448,14 @@ and does not block `tmpl/`.
 
 ## Tests
 
+- `tests/main-walls.sh [githooks-dir]` — the walls around the default branch,
+  each in pairs (armed refuses, unarmed allows, so a wall that blocked
+  everywhere fails); `git-no-ff-main` driven through real git with a bare
+  remote, including `git fetch origin main:main` (which moves main before
+  origin/main), no ignored-hook hint as shipped, and staying armed across a
+  re-install; and `github-protect-main` arming on the plan 403, staying quiet
+  and PUT-free after, leaving the record alone on any other 403, and disarming
+  once protection is available. `gh` is stubbed.
 - `tests/protect-main-required-checks.sh [githooks-dir]` — the required-check
   selection. `gh` is stubbed and the branch-protection PUT is captured instead of
   sent, so the assertions are on the checks the guard would actually require.

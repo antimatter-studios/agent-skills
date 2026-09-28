@@ -17,6 +17,37 @@ branch=$(gh api "repos/$slug" --jq '.default_branch' 2>/dev/null) || {
   echo "github-guard: couldn't read default branch for $slug — skipping" >&2; exit 0; }
 [ -n "$branch" ] || exit 0
 
+# Can GitHub protect this branch at all? On a private repository without a paid
+# plan it cannot: every protection call answers 403 "Upgrade to GitHub Pro or
+# make this repository public". Everything below would then be spent on a PUT
+# that can only fail, on every commit, followed by a warning that stops being
+# read. So ask once, first, and when the answer is no:
+#
+#   - record it in this clone's git config (github-guard.protection), which
+#     arms the LOCAL walls — git-no-commit-on-main and git-no-push-to-main — so
+#     the default branch still only moves by pull request;
+#   - stop here, quietly after the first time.
+#
+# The first answer that is not the plan refusal clears the record and disarms
+# the walls: the server is the wall again. Any other failure (network, no admin)
+# leaves the record as it is — fail-open, like the rest of this guard.
+probe=$(gh api "repos/$slug/branches/$branch/protection" 2>&1 >/dev/null)
+case "$probe" in
+  *"Upgrade to GitHub Pro"*)
+    if ! gg_walls_armed; then
+      git config github-guard.protection unavailable
+      echo "github-guard: GitHub cannot protect $slug:$branch on this plan (a private repository needs GitHub Pro)." >&2
+      echo "github-guard: armed the local walls instead — no commits on $branch, no pushes to it." >&2
+    fi
+    exit 0 ;;
+  *"(HTTP 403)"* | *"(HTTP 401)"* | *"error connecting"*) ;;   # can't tell; leave the record alone
+  *)
+    if gg_walls_armed; then
+      git config --unset github-guard.protection
+      echo "github-guard: $slug:$branch can be protected by GitHub again — local walls disarmed." >&2
+    fi ;;
+esac
+
 # Required status checks: auto-discover the checks that GATE A PULL REQUEST and
 # require them, strict. The only checks that can gate a PR are the ones that run
 # on `pull_request`, so discover them from recent pull_request workflow runs —

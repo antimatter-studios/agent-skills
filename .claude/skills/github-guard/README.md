@@ -183,7 +183,7 @@ avoided is gone anyway, since the installed copy is no longer a committed one.
 |---|---|---|---|
 | `github-auto-merge` | pre-commit | no (fail-open) | Reconciles *Allow auto-merge* with `merge.auto` in `.github-guard` (server copy); refuses to enable it while the default branch requires no status checks. Owner-only. |
 | `github-merge-squash-only` | pre-commit | no (fail-open) | Heals the GitHub repo to **squash only** (`allow_merge_commit=false`, `allow_rebase_merge=false`). Owner-only. |
-| `github-protect-main` | pre-commit | no (fail-open) | Protects the **default branch**: require a PR, enforced for admins, linear history, no force-push/deletion. Owner-only. |
+| `github-protect-main` | pre-commit | no (fail-open) | Protects the **default branch**: require a PR, enforced for admins, linear history, no force-push/deletion. Owner-only. Where GitHub refuses (a private repo without a paid plan, 403) it arms the local walls below instead and stops there. |
 | `git-block-merge-commit` | pre-merge-commit | yes | Refuses to **create** a merge commit locally. |
 | `git-block-merge-commits` | pre-push | yes | Refuses to **push** a range containing a merge commit. |
 | `git-block-bad-files` | pre-commit | yes | Refuses staged keys/certs, credential blobs, env files, OS junk, merge cruft. Conservative (no broad `*secret*`; `.env.example` allowed). |
@@ -192,6 +192,9 @@ avoided is gone anyway, since the installed copy is no longer a committed one.
 | `generated-normalise` | pre-commit | no | Strips trailing whitespace under `paths.generated` and re-stages. |
 | `git-block-large-files` | pre-commit | yes | Blocks staged files over a limit (default 10 MiB, `GITHUB_GUARD_MAX_FILE_MB`) unless LFS-tracked. |
 | `git-changelog` | pre-push | yes | On a version-tag push, requires the release documented in CHANGELOG.md / README changelog (≤10 in README + link). Self-gates if no changelog. |
+| `git-no-commit-on-main` | pre-commit | yes, when armed | Refuses to commit while the default branch is checked out. **Self-gates** on `github-guard.protection=unavailable` — set by `github-protect-main` when GitHub cannot protect the branch — so it only acts where the server can't. |
+| `git-no-push-to-main` | pre-push | yes, when armed | Refuses any push whose target is the default branch (`HEAD:main`, `work:main`, a fast-forwarded local main). Same self-gate. |
+| `git-no-ff-main` | reference-transaction | yes, **ships disarmed** | Refuses to move the **local** default branch onto commits that are not on the remote (`git merge --ff-only work` on main), while allowing syncs (`git pull --ff-only`, `git fetch origin main:main`). For clones several people or agents share. Arm it per clone — see below. |
 | `git-tags-on-main` | pre-push | yes | Blocks pushing a **tag** whose commit isn't on the default branch (`main`) — release tags must mark a commit that landed on main, not one stranded on a feature/pre-squash line. Purely local; peels annotated tags. |
 | `rust-fmt` | pre-commit | no | `cargo fmt` then re-stage. Cargo projects only: the root crate, or each crate in a subdirectory (`runner/Cargo.toml`) when there is none at the root. |
 | `rust-clippy` | pre-commit | yes | `cargo clippy --all-targets -- -D warnings`, once per Cargo project (the root crate, or each crate in a subdirectory when there is none at the root); skips (doesn't block) when a `path=` sibling dep isn't checked out. |
@@ -199,8 +202,41 @@ avoided is gone anyway, since the installed copy is no longer a committed one.
 
 Every guard **self-gates**: `rust-*` skip without a `Cargo.toml`; `github-*`
 skip on repos you don't own or non-GitHub remotes; the path guards do nothing
-without a declaration. So the same set installs everywhere and each guard
+without a declaration; the walls around the default branch act only where
+GitHub cannot protect it. So the same set installs everywhere and each guard
 decides if it's relevant.
+
+### Walls around the default branch (private repos without a paid plan)
+
+`github-protect-main` makes the default branch "pull requests only" by asking
+GitHub to protect it. For a private repository without GitHub Pro, GitHub
+answers 403 *"Upgrade to GitHub Pro or make this repository public"*, and
+nothing then stops a commit on `main`, a fast-forward of local work onto it, or
+a push of it. So when the guard gets that answer it:
+
+- records `github-guard.protection=unavailable` in the clone's git config (which
+  no branch can write), arming `git-no-commit-on-main` and `git-no-push-to-main`;
+- stops right there — one API call instead of discovery and a PUT that can only
+  fail — and says so once, the first time.
+
+The first answer that is not the plan refusal clears the record and disarms the
+walls: the server is the wall again. A fresh clone arms on its first commit
+(`github-protect-main` runs after `git-no-commit-on-main`), so that one commit is
+not checked.
+
+`git-no-ff-main` also stops the **local** default branch moving onto unreviewed
+commits, which matters when several people or agents share one clone and branch
+from, test against or sync the same local `main`. It fires from
+`reference-transaction`, which github-guard does not install as a hook, so it
+ships disarmed. Arm it per clone:
+
+```sh
+h=$(git rev-parse --git-common-dir)/hooks
+cp "$h/lib/reference-transaction.dispatcher" "$h/reference-transaction"
+chmod +x "$h/reference-transaction" "$h/reference-transaction.d/git-no-ff-main.sh"
+```
+
+Re-running the installer leaves it armed.
 
 ### Add / remove / disable
 
@@ -233,7 +269,7 @@ read when it fires and what it's for.
 | `push-to-checkout` | If the hook exists, git delegates the checkout to it — a no-op would break the push. |
 | `fsmonitor-watchman` | Only invoked when `core.fsmonitor` points at it, and speaks a specific protocol; a generic stub would break fsmonitor. |
 | `proc-receive` | Speaks a version-negotiation protocol over stdin/stdout; not a no-op-safe guard point. |
-| `reference-transaction`, `post-index-change` | Fire on nearly every ref/index update — too hot to host a per-event dispatcher by default. Add one yourself if you truly need it. |
+| `reference-transaction`, `post-index-change` | Fire on nearly every ref/index update — too hot to host a per-event dispatcher by default. `reference-transaction` ships as a template, `lib/reference-transaction.dispatcher`, for `git-no-ff-main`; it is not installed as a hook, because git prints a hint on every ref update for a hook file it cannot execute. |
 | `pre-receive`, `update`, `post-receive`, `post-update` | **Server-side** — they run on the receiving repo, not from a local hooks directory, so a local file would never fire. |
 
 ## Why a hook (and not only a GitHub ruleset)
