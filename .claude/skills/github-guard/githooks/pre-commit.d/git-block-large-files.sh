@@ -14,16 +14,17 @@ staged=$(git diff --cached --name-only --diff-filter=ACM)
 
 fail=0
 while IFS= read -r path; do
-  [ -n "$path" ] && [ -f "$path" ] || continue
+  [ -n "$path" ] || continue
   # Tracked by Git LFS? Then only a small pointer is committed — allow it.
   if git check-attr filter -- "$path" 2>/dev/null | grep -q ': filter: lfs$'; then
     continue
   fi
-  # `wc -c`, not stat. BSD reads `stat -f '%z'` as the size, but GNU reads
-  # `stat -f` as FILESYSTEM status and succeeds, so the old BSD-first chain got
-  # a multi-line filesystem report on Linux, `[ -gt ]` errored, and no file was
-  # ever blocked there. wc takes the size from fstat for a regular file on both.
-  sz=$(wc -c < "$path" 2>/dev/null | tr -d ' ') || sz=0
+  # The STAGED blob's size, from the index — that is what the commit records.
+  # The working-tree file can differ either way: a big blob staged and then
+  # shrunk on disk would pass, a small one grown on disk would be refused.
+  # (Nor stat at all: GNU reads `stat -f` as FILESYSTEM status and succeeds,
+  # which is how this guard once blocked nothing on Linux.)
+  sz=$(git cat-file -s ":$path" 2>/dev/null) || sz=0
   case "$sz" in ''|*[!0-9]*) sz=0 ;; esac
   if [ "$sz" -gt "$max_bytes" ]; then
     mb=$(( sz / 1024 / 1024 ))

@@ -135,13 +135,37 @@ fi
 # containing `"` or `\` would read back double-escaped and never equal the
 # `jq -c`-encoded `desired`, re-applying protection on every commit. `tojson`
 # output is single-line, so line-reading each field is safe. Empty when unprotected.
-{ IFS= read -r has_reviews; IFS= read -r has_admins; IFS= read -r current; IFS= read -r review_count; } < <(
-  gh api "repos/$slug/branches/$branch/protection" --jq \
+#
+# A read that FAILS is not an unprotected branch. Only GitHub's 404 "Branch not
+# protected" means there is nothing to preserve; any other failure (a 5xx, a
+# rate limit, a dropped connection) leaves the real policy unknown, and a PUT
+# built from an unknown policy is a downgrade — it would reset approval counts
+# and review settings it never saw. So that case stops here, writing nothing.
+prot_err=$(mktemp "${TMPDIR:-/tmp}/github-protect-main.XXXXXX") || exit 0
+prot=$(gh api "repos/$slug/branches/$branch/protection" --jq \
     '(.required_pull_request_reviews != null),
      (.enforce_admins.enabled // false),
      ((.required_status_checks.checks // []) | map({context: .context}) | unique | tojson),
-     (.required_pull_request_reviews.required_approving_review_count // 0)' 2>/dev/null)
+     (.required_pull_request_reviews.required_approving_review_count // 0),
+     (.required_pull_request_reviews.dismiss_stale_reviews // false),
+     (.required_pull_request_reviews.require_code_owner_reviews // false)' 2>"$prot_err")
+prot_rc=$?
+prot_msg=$(cat "$prot_err"); rm -f "$prot_err"
+if [ "$prot_rc" != 0 ]; then
+  case "$prot_msg" in
+    *"Branch not protected"*) prot= ;;
+    *)
+      echo "github-guard: could not read branch protection for $slug:$branch — leaving it as it is:" >&2
+      printf '%s\n' "$prot_msg" | head -1 | sed 's/^/             /' >&2
+      exit 0 ;;
+  esac
+fi
+{ IFS= read -r has_reviews; IFS= read -r has_admins; IFS= read -r current; IFS= read -r review_count
+  IFS= read -r dismiss_stale; IFS= read -r code_owners; } <<<"$prot"
 [ -n "$current" ] || current='[]'
+# Settings this guard does not manage are carried over as they are, never reset.
+[ "$dismiss_stale" = true ] || dismiss_stale=false
+[ "$code_owners" = true ] || code_owners=false
 # Preserve any already-configured approval count instead of hardcoding 0: re-applying
 # protection must never silently DOWNGRADE a team's "require N reviews" back to 0.
 # Default 0 (require a PR, no approvals) for the solo case / a fresh unprotected branch.
@@ -320,7 +344,7 @@ payload=$(cat <<JSON
 {
   "required_status_checks": $rsc,
   "enforce_admins": true,
-  "required_pull_request_reviews": { "required_approving_review_count": $review_count, "dismiss_stale_reviews": false, "require_code_owner_reviews": false },
+  "required_pull_request_reviews": { "required_approving_review_count": $review_count, "dismiss_stale_reviews": $dismiss_stale, "require_code_owner_reviews": $code_owners },
   "restrictions": null,
   "required_linear_history": true,
   "allow_force_pushes": false,
