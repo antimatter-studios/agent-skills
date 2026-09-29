@@ -212,12 +212,19 @@ copy_into() {
 
   mkdir -p "$hooks"
   prune_retired "$hooks"
+  # An exec bit the operator set on a file the payload ships without one is
+  # kept: that is how an opt-in guard (git-no-ff-main) is armed per clone, and
+  # an upgrade must not disarm it. Read from a regular file only — a symlink is
+  # being replaced, and its target's mode is not ours to carry over.
   ( cd "$src" && find . -type f -print0 ) \
     | while IFS= read -r -d '' rel; do
         rel=${rel#./}
+        armed=0
+        [ -f "$hooks/$rel" ] && [ ! -L "$hooks/$rel" ] && [ -x "$hooks/$rel" ] && armed=1
         mkdir -p "$hooks/$(dirname "$rel")"
         rm -f "$hooks/$rel"
         cp "$src/$rel" "$hooks/$rel"
+        [ "$armed" = 0 ] || chmod +x "$hooks/$rel"
       done
   ( cd "$src" && find . -type f | sed 's#^\./##' | sort ) >"$hooks/$MANIFEST"
   # Restore exec bits (cp may drop them) from the SOURCE tree, which is the
