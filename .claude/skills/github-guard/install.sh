@@ -51,7 +51,7 @@ hooks_dir_of() {
 # survives from --global/--system is the operator's to remove, and we refuse
 # rather than pretend.
 clear_hooks_path() {
-  local target="$1" eff
+  local target="$1" eff origin
   # `--unset-all` exits 5 for "key not there", which is the common case and not
   # an error; a genuine failure is caught by the assertion below either way.
   git -C "$target" config --unset-all core.hooksPath 2>/dev/null || true
@@ -60,10 +60,11 @@ clear_hooks_path() {
   fi
   eff=$(git -C "$target" config --get core.hooksPath 2>/dev/null || true)
   [ -z "$eff" ] && return 0
+  # Say where the value lives rather than guess at a scope: git knows the file.
+  origin=$(git -C "$target" config --show-origin --get core.hooksPath 2>/dev/null | cut -f1 || true)
   printf '  ERROR %s: core.hooksPath is still %s after clearing this repo'\''s config.\n' "$target" "$eff" >&2
-  printf '        It comes from your global or system git config and overrides .git/hooks,\n' >&2
-  printf '        so the guards would be installed and never run. Clear it, then re-run:\n' >&2
-  printf '          git config --global --unset core.hooksPath\n' >&2
+  printf '        It is set in %s and overrides .git/hooks,\n' "${origin:-a config file outside this repo}" >&2
+  printf '        so the guards would be installed and never run. Remove it there, then re-run.\n' >&2
   return 1
 }
 
@@ -169,10 +170,36 @@ migrate_local_path_keys() {
   return 0
 }
 
-# Copy the guard tree into <repo>'s .git/hooks. cp -R merges into an existing
-# hooks dir (overwrites github-guard's files, leaves any extra guards you dropped
-# there). Returns non-zero if <repo> isn't a git repo, or if the end state can't
-# be reached. Sets HOOKS_DIR on success.
+# What this installer placed in .git/hooks, one payload-relative path per line.
+# It is the ONLY thing a re-run may delete from: a guard retired from the
+# payload is removed because it is listed here and the payload no longer has
+# it. Anything else in .git/hooks — a developer's own hook, project-local
+# guards dropped into a <hook>.d/ — is not listed and is never touched.
+MANIFEST=.github-guard.manifest
+
+# Remove files a previous install placed that the payload no longer ships.
+# A hooks dir with no manifest predates it, so nothing is pruned there: without
+# the record there is no telling ours from the operator's.
+prune_retired() {
+  local hooks="$1" rel
+  [ -f "$hooks/$MANIFEST" ] || return 0
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    case "$rel" in /* | *..*) continue ;; esac   # a record never points outside
+    [ -e "$src/$rel" ] && continue
+    [ -e "$hooks/$rel" ] || [ -L "$hooks/$rel" ] || continue
+    rm -f "$hooks/$rel"
+    printf '  removed %s: no longer in the payload\n' "$rel" >&2
+  done <"$hooks/$MANIFEST"
+  return 0
+}
+
+# Copy the guard tree into <repo>'s .git/hooks, file by file. Each destination
+# is removed first, so a symlink there is REPLACED rather than followed — cp
+# onto a link writes through it, and the payload and its exec bit would land on
+# whatever the link pointed at. Files the payload does not ship are left alone.
+# Returns non-zero if <repo> isn't a git repo, or if the end state can't be
+# reached. Sets HOOKS_DIR on success.
 HOOKS_DIR=
 copy_into() {
   local target="$1" hooks rel
@@ -184,7 +211,22 @@ copy_into() {
   clear_hooks_path "$target" || return 1
 
   mkdir -p "$hooks"
-  cp -R "$src/." "$hooks/"
+  prune_retired "$hooks"
+  # An exec bit the operator set on a file the payload ships without one is
+  # kept: that is how an opt-in guard (git-no-ff-main) is armed per clone, and
+  # an upgrade must not disarm it. Read from a regular file only — a symlink is
+  # being replaced, and its target's mode is not ours to carry over.
+  ( cd "$src" && find . -type f -print0 ) \
+    | while IFS= read -r -d '' rel; do
+        rel=${rel#./}
+        armed=0
+        [ -f "$hooks/$rel" ] && [ ! -L "$hooks/$rel" ] && [ -x "$hooks/$rel" ] && armed=1
+        mkdir -p "$hooks/$(dirname "$rel")"
+        rm -f "$hooks/$rel"
+        cp "$src/$rel" "$hooks/$rel"
+        [ "$armed" = 0 ] || chmod +x "$hooks/$rel"
+      done
+  ( cd "$src" && find . -type f | sed 's#^\./##' | sort ) >"$hooks/$MANIFEST"
   # Restore exec bits (cp may drop them) from the SOURCE tree, which is the
   # authority on which payload files are executable — dispatchers and guards yes,
   # lib/common.sh no, since it is sourced. Only files the payload actually ships
