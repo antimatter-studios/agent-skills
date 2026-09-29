@@ -10,9 +10,10 @@
 set -uo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 fails=0
+passes=0
 check() {
   local what="$1"; shift
-  if "$@"; then printf 'ok   %s\n' "$what"; else printf 'FAIL %s\n' "$what"; fails=$((fails+1)); fi
+  if "$@"; then printf 'ok   %s\n' "$what"; passes=$((passes+1)); else printf 'FAIL %s\n' "$what"; fails=$((fails+1)); fi
 }
 run() { python3 -c "$1" "$here"; }
 
@@ -252,4 +253,5 @@ if "not stillGoing" not in body:
     sys.exit(1)
 '
 
-exit $((fails > 0))
+[ "$fails" -eq 0 ] || exit 1
+echo "report: all $passes checks passed"

@@ -243,4 +243,5 @@ says "1 older" "$out" "--source restores dating for an installed copy"
 says "$v1"     "$out" "--source names the commit the bytes came from"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[ "$fail" = 0 ]
+[ "$fail" -eq 0 ] || exit 1
+echo "status-sh: all $pass checks passed"

@@ -234,4 +234,5 @@ JSON
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[ "$fail" = 0 ]
+[ "$fail" -eq 0 ] || exit 1
+echo "auto-merge: all $pass checks passed"

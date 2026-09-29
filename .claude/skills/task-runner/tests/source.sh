@@ -16,11 +16,13 @@ set -uo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
 fails=0
+passes=0
 
 check() {
   local what="$1"; shift
   if "$@"; then
     printf 'ok   %s\n' "$what"
+    passes=$((passes + 1))
   else
     printf 'FAIL %s\n' "$what"
     fails=$((fails + 1))
@@ -182,4 +184,5 @@ for cls in (FileTasks, IssueTasks):
         sys.exit(1)
 '
 
-exit $((fails > 0))
+[ "$fails" -eq 0 ] || exit 1
+echo "source: all $passes checks passed"

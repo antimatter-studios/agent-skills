@@ -303,4 +303,5 @@ git -C "$repo" commit -q --allow-empty -m attack2
                    || bad "the branch's .githooks/pre-commit RAN — hooks are still rewritable by a checkout"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[ "$fail" = 0 ]
+[ "$fail" -eq 0 ] || exit 1
+echo "install-sh: all $pass checks passed"

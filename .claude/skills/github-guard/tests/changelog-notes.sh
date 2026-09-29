@@ -84,4 +84,5 @@ out=$( cd "$bare" && "$notes" notes v1.0.0 2>&1 ); rc=$?
 says "no CHANGELOG.md" "$out" "and says so"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[ "$fail" = 0 ]
+[ "$fail" -eq 0 ] || exit 1
+echo "changelog-notes: all $pass checks passed"

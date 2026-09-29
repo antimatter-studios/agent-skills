@@ -209,4 +209,5 @@ armed && bad "protect-main, protected and never armed: should stay unarmed" \
   || ok "protect-main, protected and never armed: stays unarmed"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[ "$fail" -eq 0 ]
+[ "$fail" -eq 0 ] || exit 1
+echo "main-walls: all $pass checks passed"

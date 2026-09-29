@@ -404,4 +404,5 @@ for g in go-fmt go-vet python-fmt python-lint js-fmt git-block-private-paths gen
 done
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[ "$fail" = 0 ]
+[ "$fail" -eq 0 ] || exit 1
+echo "language-guards: all $pass checks passed"

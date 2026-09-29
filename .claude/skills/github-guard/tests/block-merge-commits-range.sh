@@ -181,4 +181,5 @@ check "an unavailable remote blocks an unverified push" 1 "$rc" "$out"
 case "$out" in *'cannot verify'*) check "the missing remote is explained" yes yes ;; *) check "the missing remote is explained" yes no "$out" ;; esac
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[ "$fail" -eq 0 ]
+[ "$fail" -eq 0 ] || exit 1
+echo "block-merge-commits-range: all $pass checks passed"
