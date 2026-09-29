@@ -22,6 +22,18 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      # Bytecode is generated on whichever machine last ran a skill, so a
+      # tracked copy is stale the moment the source changes, and it names the
+      # interpreter that happened to build it.
+      - name: No tracked bytecode
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '(^|/)__pycache__/|\.py[co]$'; then
+            echo "::error::bytecode is tracked; it belongs in .gitignore"
+            exit 1
+          fi
+          echo "no tracked bytecode"
+
       # What counts as a script: any file with a shebang. Git hooks are
       # extensionless by necessity, so a name-based rule either misses the
       # dispatchers or sweeps up data files that live beside them —
