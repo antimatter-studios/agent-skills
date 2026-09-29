@@ -34,33 +34,11 @@ jobs:
           fi
           echo "no tracked bytecode"
 
-      # What counts as a script: any file with a shebang. Git hooks are
-      # extensionless by necessity, so a name-based rule either misses the
-      # dispatchers or sweeps up data files that live beside them —
-      # the old extensionless required-checks declaration was linted as shell on the first run here.
-      #
-      # The shebang also names the language, and that is the split: a
-      # `#!/usr/bin/env python3` file handed to `bash -n` is a syntax error on
-      # its first regex. A shebang naming neither is refused, not left
-      # unchecked.
+      # Every file with a shebang, split by language; the rules, and why
+      # nothing is skipped in silence, are in the script. It prints the count,
+      # and refuses a tree where it classified fewer files than carry a shebang.
       - name: Collect scripts
-        run: |
-          set -euo pipefail
-          : > scripts.z
-          : > python.z
-          find . -path ./.git -prune -o -type f -print > files.txt
-          while IFS= read -r f; do
-            IFS= read -r first < "$f" 2>/dev/null || continue
-            case "$first" in
-              '#!'*python*) printf '%s\0' "$f" >> python.z ;;
-              '#!'*bash*|'#!'*/sh|'#!'*' sh') printf '%s\0' "$f" >> scripts.z ;;
-              '#!'*) echo "::error file=$f::no syntax check for shebang: $first"; exit 1 ;;
-            esac
-          done < files.txt
-          rm files.txt
-          echo "shell:"; tr '\0' '\n' < scripts.z | sed 's/^/  /'
-          echo "python:"; tr '\0' '\n' < python.z | sed 's/^/  /'
-          test -s scripts.z
+        run: bash .github/scripts/collect-scripts.sh .
 
       - name: Syntax
         run: |
@@ -69,7 +47,7 @@ jobs:
           if [ -s python.z ]; then
             xargs -0 python3 -m py_compile < python.z
           fi
-          echo "all scripts parse"
+          echo "all $(tr -cd '\0' < scripts.z | wc -c | tr -d ' ') shell and $(tr -cd '\0' < python.z | wc -c | tr -d ' ') python scripts parse"
 
       - name: ShellCheck
         run: |
@@ -84,25 +62,20 @@ jobs:
           # -P SCRIPTDIR resolves `# shellcheck source=` relative to the script,
           # not the working directory, so lib/common.sh is actually followed.
           xargs -0 shellcheck -x -P SCRIPTDIR -S error < scripts.z
-          echo "shellcheck clean"
+          echo "shellcheck clean: $(tr -cd '\0' < scripts.z | wc -c | tr -d ' ') shell scripts"
 
-      # Every tests/*.sh under any skill, so adding a suite needs no change here.
-      # git is configured because a test that runs `git init` + `git commit` has
-      # no identity on a runner.
+      # Every tests/*.sh under any skill, and .github/tests/*.sh, so adding a
+      # suite needs no change here. Each must END with "<name>: all N checks
+      # passed", N >= 1 — exit 0 alone is not evidence a suite finished; see
+      # the script. git is configured because a test that runs `git init` +
+      # `git commit` has no identity on a runner.
       - name: Tests
         run: |
           set -euo pipefail
           git config --global user.email ci@example.com
           git config --global user.name CI
           git config --global init.defaultBranch main
-          found=0
-          for t in .claude/skills/*/tests/*.sh; do
-            [ -e "$t" ] || continue
-            found=1
-            printf '\n=== %s\n' "$t"
-            bash "$t"
-          done
-          [ "$found" = 1 ] || { echo "no test suites found" >&2; exit 1; }
+          bash .github/scripts/run-suites.sh
 
       # The action's WIRING — $GITHUB_ACTION_PATH, its inputs, its output, and
       # the failure it must not swallow — can only be tested by a runner

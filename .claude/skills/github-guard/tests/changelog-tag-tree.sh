@@ -58,4 +58,5 @@ tag_and_remove
 check 'a documented old tag passes from a later checkout' 0 ''
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[ "$fail" = 0 ]
+[ "$fail" -eq 0 ] || exit 1
+echo "changelog-tag-tree: all $pass checks passed"

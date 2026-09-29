@@ -352,4 +352,5 @@ run_case 'an earlier main success preserves a conditional check' ABSENT
 expect_checks '["CI","Frontend (vitest)"]'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[ "$fail" = 0 ]
+[ "$fail" -eq 0 ] || exit 1
+echo "protect-main-required-checks: all $pass checks passed"

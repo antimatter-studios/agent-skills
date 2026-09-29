@@ -71,4 +71,5 @@ run_guard >/dev/null; rc=$?
 [ "$rc" -eq 0 ] && ok "a file exactly at the limit is allowed" || bad "a file exactly at the limit is allowed (rc=$rc)"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[ "$fail" -eq 0 ]
+[ "$fail" -eq 0 ] || exit 1
+echo "block-large-files: all $pass checks passed"

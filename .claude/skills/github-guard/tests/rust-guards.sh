@@ -168,4 +168,5 @@ setup; crate gone; crate kept; git -C "$repo" commit -qm init; rm "$repo/gone/Ca
 is "$(manifests)" "kept/Cargo.toml" "a tracked manifest deleted from the working tree is skipped"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[ "$fail" = 0 ]
+[ "$fail" -eq 0 ] || exit 1
+echo "rust-guards: all $pass checks passed"
