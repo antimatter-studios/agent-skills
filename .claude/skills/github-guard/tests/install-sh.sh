@@ -191,6 +191,58 @@ exists  "$hooks/pre-commit.d/zz-project-local.sh" "project-local guard"
 is_exec "$hooks/pre-commit.d/zz-project-local.sh" "project-local guard"
 is_exec "$hooks/pre-commit.d/github-protect-main.sh" "payload guard after upgrade"
 
+# --- 4b. a guard RETIRED from the payload is pruned; nothing else is ---------
+# cp -R is an overlay: a guard removed from the payload stayed in .git/hooks and
+# kept running on every repo the upgrade reached. The installer now removes what
+# IT placed and the payload no longer has — and only that, so a project-local
+# guard dropped into .git/hooks survives. A copy of the skill stands in for the
+# next release, with one guard retired.
+setup
+cp -R "$skill" "$root/skill-next$n"
+"$root/skill-next$n/install.sh" "$repo" >/dev/null 2>&1
+printf '#!/usr/bin/env bash\nexit 0\n' > "$hooks/pre-commit.d/zz-project-local.sh"
+chmod +x "$hooks/pre-commit.d/zz-project-local.sh"
+exists "$hooks/pre-commit.d/git-no-trailing-whitespace.sh" "control: the guard about to be retired, before the upgrade"
+rm "$root/skill-next$n/githooks/pre-commit.d/git-no-trailing-whitespace.sh"
+"$root/skill-next$n/install.sh" "$repo" >/dev/null 2>"$root/err4b"
+absent "$hooks/pre-commit.d/git-no-trailing-whitespace.sh" "a guard retired from the payload"
+grep -qF 'pre-commit.d/git-no-trailing-whitespace.sh' "$root/err4b" \
+  && ok "the prune is announced" || bad "the prune was silent: $(cat "$root/err4b")"
+exists "$hooks/pre-commit.d/zz-project-local.sh" "a project-local guard after a pruning upgrade"
+exists "$hooks/pre-commit.d/github-protect-main.sh" "a guard still in the payload after a pruning upgrade"
+
+# --- 4c. a destination SYMLINK is replaced, never written through ------------
+# cp onto an existing symlink follows it: the payload and the chmod +x landed on
+# whatever the link pointed at — a personal or tool-managed hook, rewritten.
+setup
+printf '#!/bin/sh\n# my own hook\n' > "$root/personal-hook$n"
+chmod 644 "$root/personal-hook$n"
+cp "$root/personal-hook$n" "$root/personal-hook$n.before"
+mkdir -p "$hooks"
+ln -s "$root/personal-hook$n" "$hooks/pre-commit"
+"$skill/install.sh" "$repo" >/dev/null 2>&1
+cmp -s "$root/personal-hook$n" "$root/personal-hook$n.before" \
+  && ok "the symlink's target is left untouched" || bad "the install wrote through the symlink into its target"
+same_mode "$root/personal-hook$n" 644 "the symlink's target"
+[ ! -L "$hooks/pre-commit" ] && ok "the symlink is replaced by the payload's file" \
+                             || bad "pre-commit is still a symlink"
+is_exec "$hooks/pre-commit" "pre-commit dispatcher that replaced a symlink"
+
+# --- 4d. a core.hooksPath the installer cannot clear is traced to its file ----
+# The refusal used to guess 'global or system'. git knows where the value lives,
+# so the message names that file. GIT_CONFIG_GLOBAL keeps the suite off the
+# machine's own config.
+setup
+printf '[core]\n\thooksPath = /elsewhere\n' > "$root/global-config$n"
+if GIT_CONFIG_GLOBAL="$root/global-config$n" "$skill/install.sh" "$repo" >/dev/null 2>"$root/err4d"; then
+  bad "an install with a global core.hooksPath should refuse"
+else
+  ok "an install with a global core.hooksPath refuses"
+fi
+grep -qF "$root/global-config$n" "$root/err4d" \
+  && ok "the refusal names the config file the value comes from" \
+  || bad "the refusal does not say where the value lives: $(cat "$root/err4d")"
+
 # --- 5. not a git repo → refuses, and leaves nothing behind ------------------
 n=$((n + 1)); plain="$root/plain$n"; mkdir -p "$plain"
 if "$skill/install.sh" "$plain" >/dev/null 2>&1; then
