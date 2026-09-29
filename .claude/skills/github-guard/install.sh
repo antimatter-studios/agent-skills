@@ -75,8 +75,16 @@ clear_hooks_path() {
 #
 # The test is the exec bit, not the filename: a data file beside the old hooks
 # is 644 and never trips this.
+#
+# A tracked file at a PAYLOAD path is ours only when its bytes are the
+# payload's. A path match alone is not ownership: a copy improved in place is
+# exactly the file whose work stops running when the payload's version is
+# installed over it in .git/hooks, while the tracked file stays in the tree
+# looking intact. So a differing one is named, with both sizes, and the payload
+# is still what gets installed — report and never adopt (importing it would
+# reopen the hole above), and never fail (the sweep must reach every clone).
 warn_orphaned_tree_guards() {
-  local target="$1" dir rel found=0
+  local target="$1" dir rel found=0 differs=()
   # Both in-tree directories this layout replaced: .githooks/, and the
   # .github-guard/ DIRECTORY that preceded the .github-guard file — an
   # executable left in either one silently never runs.
@@ -84,7 +92,11 @@ warn_orphaned_tree_guards() {
     [ -d "$target/$dir" ] || continue
     while IFS= read -r rel; do
       rel=${rel#./}
-      [ -f "$src/$rel" ] && continue   # ours; now installed under .git/hooks
+      if [ -f "$src/$rel" ]; then
+        cmp -s "$src/$rel" "$target/$dir/$rel" && continue   # ours, byte for byte
+        differs+=("$dir/$rel|$(wc -c <"$target/$dir/$rel" | tr -d ' ')|$(wc -c <"$src/$rel" | tr -d ' ')")
+        continue
+      fi
       if [ "$found" = 0 ]; then
         found=1
         printf '  NOTE %s: repo-local guards in the working tree no longer run:\n' "$target" >&2
@@ -94,6 +106,17 @@ warn_orphaned_tree_guards() {
   done
   if [ "$found" = 1 ]; then
     printf '       Move each into .git/hooks/<hook>.d/ to keep it, or delete it.\n' >&2
+  fi
+  if [ ${#differs[@]} -gt 0 ]; then
+    printf '  NOTE %s: tracked guards that DIFFER from the payload are superseded —\n' "$target" >&2
+    printf '       .git/hooks now runs the payload'\''s copy, not these:\n' >&2
+    local d path tracked payload
+    for d in "${differs[@]}"; do
+      IFS='|' read -r path tracked payload <<<"$d"
+      printf '       %s  (tracked %s bytes, payload %s bytes)\n' "$path" "$tracked" "$payload" >&2
+    done
+    printf '       Diff each against the payload before relying on it; a check only the\n' >&2
+    printf '       tracked copy has is not running.\n' >&2
   fi
   return 0
 }

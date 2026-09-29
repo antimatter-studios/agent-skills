@@ -150,6 +150,36 @@ grep -qF 'migrated git config github-guard.private-path -> github-guard.paths.pr
 "$skill/install.sh" "$repo" >/dev/null 2>"$root/err3c"
 grep -qF 'migrated' "$root/err3c" && bad "a second install migrated again" || ok "a second install has nothing to migrate"
 
+# --- 3c. a tracked guard that differs from the payload is NAMED, not skipped --
+# A path match is not ownership. Twelve repos once tracked a rust-deps-pinned.sh
+# far ahead of the payload's; the installer called each "ours" because the path
+# matched, installed the payload's copy into .git/hooks, and said nothing — the
+# tracked file stayed in the tree looking intact while the check stopped
+# running. A byte-identical tracked copy really is ours and stays quiet; that
+# is the control that shows the note is about the difference, not the path.
+setup
+mkdir -p "$repo/.githooks/pre-commit.d"
+cp "$skill/githooks/pre-commit.d/rust-deps-pinned.sh" "$repo/.githooks/pre-commit.d/rust-deps-pinned.sh"
+printf '# a check only this copy has\n' >> "$repo/.githooks/pre-commit.d/rust-deps-pinned.sh"
+cp "$skill/githooks/pre-commit.d/rust-fmt.sh" "$repo/.githooks/pre-commit.d/rust-fmt.sh"
+chmod +x "$repo/.githooks/pre-commit.d/"*.sh
+cp "$repo/.githooks/pre-commit.d/rust-deps-pinned.sh" "$root/tracked3c.before"
+"$skill/install.sh" "$repo" >/dev/null 2>"$root/err3c2"
+grep -qF '.githooks/pre-commit.d/rust-deps-pinned.sh' "$root/err3c2" \
+  && ok "a tracked guard that differs from the payload is named" \
+  || bad "a differing tracked guard was superseded in silence: $(cat "$root/err3c2")"
+grep -qF 'superseded' "$root/err3c2" \
+  && ok "and the note says the installed payload supersedes it" \
+  || bad "the note does not say it is superseded: $(cat "$root/err3c2")"
+grep -qF '.githooks/pre-commit.d/rust-fmt.sh' "$root/err3c2" \
+  && bad "a byte-identical tracked guard was reported" \
+  || ok "control: a byte-identical tracked guard is not reported"
+cmp -s "$repo/.githooks/pre-commit.d/rust-deps-pinned.sh" "$root/tracked3c.before" \
+  && ok "the tracked copy is left as it was" || bad "the installer rewrote the tracked copy"
+cmp -s "$hooks/pre-commit.d/rust-deps-pinned.sh" "$skill/githooks/pre-commit.d/rust-deps-pinned.sh" \
+  && ok "the installed guard is the payload's, never the tracked one" \
+  || bad "the installer adopted the tracked copy from the working tree"
+
 # --- 4. a project-local extra guard survives an upgrade ---------------------
 setup
 "$skill/install.sh" "$repo" >/dev/null
