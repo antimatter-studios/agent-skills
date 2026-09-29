@@ -45,6 +45,17 @@ The guards land in `<repo>/.git/hooks`, and the installer clears
 nothing to review — the hooks are per-clone, so each fresh clone re-runs the
 installer.
 
+Re-running it is the upgrade. It records what it placed in
+`.git/hooks/.github-guard.manifest`, so a guard retired from the payload is
+removed on the next run — and only such a guard: anything else in `.git/hooks`,
+such as your own hooks or project-local guards in a `<hook>.d/`, is not in that
+record and is left alone. Each file is replaced rather than written into, so a
+symlink at a hook's path is swapped for the payload's file, not followed.
+
+It always installs from the skill's own `githooks/`, never from the target
+repo's working tree. That is the property that keeps a checked-out branch from
+choosing the hooks that run, so keep it that way.
+
 Per-clone also means each copy can drift where `git status` cannot see it, so
 there is a read for that:
 
