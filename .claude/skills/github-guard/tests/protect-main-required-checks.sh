@@ -82,9 +82,11 @@ case "$url" in
     fi
     printf '%s' "$body" | jq -r "$jqexpr" ;;
   */branches/*/protection)
-    [ "${GH_PROTECTED:-1}" = 1 ] || exit 1
-    printf '%s\n%s\n%s\n%s\n' "${GH_REVIEWS:-true}" "${GH_ADMINS:-true}" \
-      "${GH_CURRENT:-[]}" "${GH_REVIEW_COUNT:-0}" ;;
+    # What gh prints for an unprotected branch, and for a read that failed.
+    [ "${GH_PROTECTED:-1}" = 1 ] || { echo 'gh: Branch not protected (HTTP 404)' >&2; exit 1; }
+    [ -z "${GH_PROTECTION_ERROR:-}" ] || { echo "gh: $GH_PROTECTION_ERROR" >&2; exit 1; }
+    printf '%s\n%s\n%s\n%s\n%s\n%s\n' "${GH_REVIEWS:-true}" "${GH_ADMINS:-true}" \
+      "${GH_CURRENT:-[]}" "${GH_REVIEW_COUNT:-0}" "${GH_DISMISS_STALE:-false}" "${GH_CODE_OWNERS:-false}" ;;
   */actions/*|repos/*)        printf '%s\n' "${GH_DEFAULT_BRANCH:-main}" ;;
   *) exit 1 ;;
 esac
@@ -172,6 +174,37 @@ export GH_HEAD=$'CI\nFormulae\nWorkflows\n'
 export GH_CURRENT='[{"context":"CI"},{"context":"Formulae"},{"context":"Workflows"}]'
 run_case 'declared aggregate replaces the discovered jobs' 'CI'
 expect_checks '["CI"]'
+
+# 1b. A protection READ that fails must not become a WRITE. The guard read
+#     "current protection" with its error discarded, so a 5xx or a rate limit
+#     read as "unprotected" and it PUT a fresh policy over the real one —
+#     dropping approval counts and review settings it never saw.
+export GH_PROTECTION_ERROR='Server Error (HTTP 502)'
+run_case 'a failed protection read writes nothing' 'CI'
+expect_checks NONE
+expect_stderr 'could not read'
+unset GH_PROTECTION_ERROR
+
+# 1c. The control for 1b: a branch that is genuinely unprotected (404) is still
+#     protected, so 1b's silence is about the failure, not about every read.
+export GH_PROTECTED=0
+run_case 'an unprotected branch is still protected' 'CI'
+expect_checks '["CI"]'
+unset GH_PROTECTED
+
+# 1d. Review settings the guard does not manage are carried over, not reset:
+#     every PUT used to write dismiss_stale_reviews and
+#     require_code_owner_reviews as false, having never read them.
+export GH_REVIEWS=true GH_ADMINS=false GH_DISMISS_STALE=true GH_CODE_OWNERS=true
+run_case 'dismiss-stale and code-owner reviews survive a re-apply' 'CI'
+got=$(jq -c '.required_pull_request_reviews | [.dismiss_stale_reviews, .require_code_owner_reviews]' \
+        "$CASE_DIR/put.json" 2>/dev/null)
+if [ "$got" = '[true,true]' ]; then
+  pass=$((pass + 1)); printf '  ok    %s\n' "$CASE_NAME"
+else
+  fail=$((fail + 1)); printf '  FAIL  %s: got %s\n' "$CASE_NAME" "${got:-no PUT}"
+fi
+export GH_REVIEWS=false; unset GH_ADMINS GH_DISMISS_STALE GH_CODE_OWNERS
 
 # 2. No declaration → the additive discovery behaviour is untouched: a check that
 #    is discovered and green on main is added to what is already required.

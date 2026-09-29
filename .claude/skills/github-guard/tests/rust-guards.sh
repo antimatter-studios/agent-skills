@@ -43,6 +43,11 @@ if [ "$1" = clippy ]; then
   for d in ${CLIPPY_FAILS:-}; do [ "$d" = "$rel" ] && { echo "warning: stub lint in $rel"; exit 101; }; done
   [ "${CLIPPY_EXIT:-0}" = 0 ] || { echo "warning: cargo exited ${CLIPPY_EXIT}"; exit "$CLIPPY_EXIT"; }
 fi
+# FMT_REWRITE: format like the real thing does — every .rs file in the crate,
+# staged or not — by appending a marker line to each.
+if [ "$1" = fmt ] && [ -n "${FMT_REWRITE:-}" ]; then
+  find . -name '*.rs' -type f | while IFS= read -r f; do printf '// formatted\n' >> "$f"; done
+fi
 if [ "$1" = metadata ] && [ "${METADATA_EXIT:-0}" != 0 ]; then
   echo 'the lock file needs to be updated' >&2
   exit "$METADATA_EXIT"
@@ -69,7 +74,7 @@ crate() {  # crate DIR -- a tracked Cargo.toml and one staged .rs file under DIR
 run() {
   ( cd "$repo" && HOME="$home" PATH="$bin:$PATH" REPO="$(pwd -P)" CALLS="$calls" \
       CLIPPY_FAILS="${CLIPPY_FAILS:-}" MUTATE_LOCK="${MUTATE_LOCK:-}" \
-      CARGO_ARGS="${CARGO_ARGS:-}" "$G/$1" 2>&1 )
+      CARGO_ARGS="${CARGO_ARGS:-}" FMT_REWRITE="${FMT_REWRITE:-}" "$G/$1" 2>&1 )
 }
 manifests() { ( cd "$repo" && . "$G/lib/common.sh" && gg_rust_manifests ); }
 
@@ -128,6 +133,25 @@ git -C "$repo" add Cargo.lock
 out=$(METADATA_EXIT=2 run pre-commit.d/rust-deps-pinned.sh); rc=$?
 is "$rc" "1" "cargo metadata exit 2 with a stale lock blocks"
 case "$out" in *"Cargo.lock is STALE"*) ok "the stale-lock reason is reported" ;; *) bad "stale lock was hidden (output: $out)" ;; esac
+
+# --- fmt touches only what is being committed ----------------------------------
+# cargo fmt formats the whole crate. A file with no staged changes — committed
+# and untouched, or edited but not staged — was rewritten on disk by a commit
+# that never included it, leaving an unrelated diff behind. Only files staged
+# in full are formatted and re-staged; everything else keeps its bytes.
+setup; crate .
+printf 'fn a() {}\n' > "$repo/src/a.rs"; printf 'fn b() {}\n' > "$repo/src/b.rs"
+git -C "$repo" add src/a.rs src/b.rs; git -C "$repo" commit -qm init
+printf 'fn main() { }\n' > "$repo/src/main.rs"; git -C "$repo" add src/main.rs   # staged in full
+printf 'fn b() { /* wip */ }\n' > "$repo/src/b.rs"                              # unstaged edit
+cp "$repo/src/a.rs" "$root/a.before"; cp "$repo/src/b.rs" "$root/b.before"
+FMT_REWRITE=1 run pre-commit.d/rust-fmt.sh >/dev/null
+cmp -s "$repo/src/a.rs" "$root/a.before" && ok "fmt leaves a committed, untouched file alone" \
+  || bad "fmt rewrote src/a.rs, which has no changes at all"
+cmp -s "$repo/src/b.rs" "$root/b.before" && ok "fmt leaves a file with only unstaged edits alone" \
+  || bad "fmt rewrote src/b.rs, whose edits are not being committed"
+git -C "$repo" show :src/main.rs | grep -q '^// formatted$' \
+  && ok "the fully staged file is still formatted and re-staged" || bad "src/main.rs was not formatted into the commit"
 
 # --- no Cargo project ----------------------------------------------------------
 setup; printf 'x\n' > "$repo/README"; git -C "$repo" add README
