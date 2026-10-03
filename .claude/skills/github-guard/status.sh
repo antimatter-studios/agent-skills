@@ -104,6 +104,73 @@ hooks_dir_of() {
   (cd "$target" && cd "$common" && printf '%s/hooks\n' "$(pwd)")
 }
 
+# The GitHub "owner/repo" of a clone's origin, or nothing. The same rules as
+# gg_repo_slug in githooks/lib/common.sh (this script does not source the
+# payload): only a real GitHub host, never a substring of some other URL.
+repo_slug() {
+  local url rest host path
+  url=$(git -C "$1" remote get-url origin 2>/dev/null) || return 0
+  url=${url%.git}
+  case "$url" in
+    ssh://*|https://*|http://*)
+      rest=${url#*://}; rest=${rest#*@}
+      host=${rest%%/*}; host=${host%%:*}
+      path=${rest#*/} ;;
+    *:*)
+      host=${url%%:*}; host=${host#*@}
+      path=${url#*:} ;;
+    *) return 0 ;;
+  esac
+  case "$host" in github.com|ssh.github.com) printf '%s' "$path" ;; esac
+}
+
+# Is the declared gate the gate? checks.required is applied to branch protection
+# by exactly one thing, github-protect-main — a pre-commit hook in an owner's
+# clone. Nothing on the server applies it, so a declaration can be merged and
+# sit there while protection keeps requiring something else, and nothing says
+# so. This is the read that says so: the DEFAULT BRANCH's .github-guard, from
+# the server (the copy the hook would apply), against what protection requires.
+#
+# Prints one line:
+#   same                         they agree, or nothing is declared
+#   differs <declared>TAB<required>   each comma-separated and sorted
+#   unknown <why>                could not tell; never read as "requires nothing"
+gate_of() {
+  local slug="$1" branch raw file="$tmp/server-decl" declared required
+  command -v gh >/dev/null 2>&1 || { echo "unknown gh is not installed"; return 0; }
+  branch=$(gh api "repos/$slug" --jq .default_branch 2>/dev/null) || branch=
+  [ -n "$branch" ] || { echo "unknown the default branch was not read"; return 0; }
+  # Absent and unreachable look the same from here, as they do to the hook; both
+  # mean nothing is declared that the hook could apply.
+  raw=$(gh api "repos/$slug/contents/.github-guard?ref=$branch" \
+    --jq 'if type == "object" and .type == "file" and .encoding == "base64"
+          then "file:" + (.content | gsub("\n"; "") | @base64d)
+          else "other" end' 2>/dev/null) || { echo same; return 0; }
+  case "$raw" in file:*) printf '%s\n' "${raw#file:}" > "$file" ;; *) echo same; return 0 ;; esac
+  git config --file "$file" --no-includes --list >/dev/null 2>&1 || { echo same; return 0; }
+  declared=$( (git config --file "$file" --no-includes --get-all checks.required 2>/dev/null || true) \
+    | sed -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' | awk 'length' | sort -u)
+  # An empty key is ignored by the hook, not read as "require nothing".
+  [ -n "$declared" ] || { echo same; return 0; }
+  [ "$declared" = none ] && declared=
+  # A branch payload without a protection field is "cannot tell", not "nothing
+  # required": reading it as empty would call every declaration unapplied.
+  required=$(gh api "repos/$slug/branches/$branch" \
+    --jq 'if .protection == null then error("no protection field")
+          else ((.protection.required_status_checks.contexts // [])
+                + ((.protection.required_status_checks.checks // []) | map(.context)))
+               | unique | .[] end' 2>/dev/null) \
+    || { echo "unknown required checks on $branch not read"; return 0; }
+  required=$(printf '%s\n' "$required" | awk 'length' | sort -u)
+  if [ "$declared" = "$required" ]; then echo same; return 0; fi
+  printf 'differs %s\t%s\n' "$(names "$declared")" "$(names "$required")"
+}
+
+# One name per line in, "a, b" out, or "(none)" for an empty set.
+names() {
+  if [ -n "$1" ]; then printf '%s\n' "$1" | paste -sd, - | sed 's/,/, /g'; else printf '(none)'; fi
+}
+
 exit_code=0
 for target in "${repos[@]}"; do
   target=$(cd "$target" 2>/dev/null && pwd) || { printf '%s: no such directory\n' "$target" >&2; exit_code=1; continue; }
@@ -203,6 +270,21 @@ for target in "${repos[@]}"; do
     unread=$((unread + 1)); notes+=("$f is not read — declare it in the .github-guard file")
   done
 
+  # The declared gate against the applied one, for a clone of a GitHub repo.
+  unapplied=0
+  slug=$(repo_slug "$target")
+  if [ -n "$slug" ]; then
+    gate=$(gate_of "$slug")
+    case "$gate" in
+      differs\ *)
+        gate=${gate#differs }
+        unapplied=1
+        notes+=("checks.required is not what protection requires — declared: ${gate%%$'\t'*} / required: ${gate#*$'\t'}") ;;
+      unknown\ *)
+        details+=("gate     $slug: ${gate#unknown }, so the declared gate was not read against protection") ;;
+    esac
+  fi
+
   # One word per repo, and the two conditions that are NOT file drift get their
   # own words rather than sharing one: an override means the installed files are
   # right and none of them run, while stranded in-tree guards mean the installed
@@ -213,6 +295,9 @@ for target in "${repos[@]}"; do
   [ "$shadow" -gt 0 ] && state=in-tree
   [ "$stranded" -gt 0 ] && state=stranded
   [ "$unread" -gt 0 ] && state=unread
+  # Below the file states: the fix is a branch-protection change, not a
+  # reinstall, and a clone that is behind should hear that first.
+  [ "$unapplied" -gt 0 ] && state=unapplied
   [ $((older + missing + unarmed)) -gt 0 ] && state=behind
   [ "$local_edits" -gt 0 ] && state=customised
   # An override outranks every count: with it set, nothing under .git/hooks runs
@@ -226,6 +311,7 @@ for target in "${repos[@]}"; do
   [ "$unarmed" -gt 0 ] && summary+="$unarmed not-executable "
   [ "$stranded" -gt 0 ] && summary+="$stranded stranded in .githooks/ "
   [ "$unread" -gt 0 ] && summary+="$unread unread declaration(s) "
+  [ "$unapplied" -gt 0 ] && summary+="declared gate not applied "
   if [ "$shadow" = 1 ]; then summary+="1 tracked copy in .githooks/ "
   elif [ "$shadow" -gt 1 ]; then summary+="$shadow tracked copies in .githooks/ "; fi
   printf '%-52s %-11s %s\n' "$target" "$state" "${summary% }"

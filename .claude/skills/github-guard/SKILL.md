@@ -593,6 +593,7 @@ Per repo it prints one of:
 | `in-tree` | the repo still **tracks** a copy of the guards under `.githooks/`, the arrangement this layout replaced | commit their deletion |
 | `stranded` | the installed files are right, but `.githooks/` or an old `.github-guard/` directory still holds executables that nothing runs | move each into `.git/hooks/<hook>.d/` or delete it |
 | `unread` | a declaration the guards cannot read: `.github-guard` is a directory or not valid git-config, or an old `.github-guard/<name>` / `.githooks/<name>` file is still there | fix or convert it into the `.github-guard` file (`git config -f .github-guard --list` shows what is read) |
+| `unapplied` | the default branch's `checks.required`, read from the server, is not the set branch protection requires — the declared gate is not the gate | commit in an owner's clone so `github-protect-main` applies it, or set protection by hand |
 | `inert` | `core.hooksPath` overrides `.git/hooks`, so nothing in it runs | clear the setting |
 
 A tracked in-tree copy does not run — the installer clears `core.hooksPath` —
@@ -605,7 +606,14 @@ nobody else.
 With `-v`, each repo also shows its working-tree `.github-guard` as the guards
 parse it (`checks.required=CI; merge.auto=true; …`), or `no .github-guard`.
 That is the checkout's copy: `checks.required` and `merge.auto` take effect from
-the default branch on the server, once merged.
+the default branch on the server, once merged **and** applied — and the only
+thing that applies `checks.required` is `github-protect-main`, a pre-commit hook
+in an owner's clone. Nothing server-side does. So for a clone whose `origin` is
+on GitHub, `status.sh` also reads the default branch's `.github-guard` and the
+branch's required checks through `gh`, and reports `unapplied` with both sets
+named when they differ. A protection it cannot read is "cannot tell" (named
+under `-v`), never "requires nothing"; a repo that declares nothing is not
+compared.
 
 `inert` outranks everything else — with the override set, what the installed
 files say is beside the point — and `stranded` is deliberately a separate word
