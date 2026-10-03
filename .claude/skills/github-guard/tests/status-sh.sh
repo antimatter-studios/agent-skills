@@ -242,6 +242,110 @@ out=$("$nohist/status.sh" -v --source "$src" "$repo" 2>&1); out=${out//$root/FIX
 says "1 older" "$out" "--source restores dating for an installed copy"
 says "$v1"     "$out" "--source names the commit the bytes came from"
 
+# --- 11. a declared gate that branch protection does not require (#63) -------
+# .github-guard's checks.required is applied only by github-protect-main, a
+# pre-commit hook in an owner's clone. Nothing else writes it, so a declaration
+# can sit merged on the default branch while protection requires something else
+# entirely: two repos ran three days declaring `ci-ok` with `ci-ok` required by
+# nothing. status.sh reads both and says when they disagree.
+#
+# gh is a stand-in that answers from JSON files and applies the caller's own
+# --jq with the real jq, so the expressions in status.sh are what is tested.
+command -v jq >/dev/null 2>&1 || { bad "jq is required by the gh stand-in (install jq)"; }
+bin="$root/bin"
+mkdir -p "$bin"
+cat > "$bin/gh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$GHSTUB/calls"
+[ "${1:-}" = api ] || exit 1
+path=$2; shift 2; expr=.
+while [ $# -gt 0 ]; do case "$1" in --jq) expr=$2; shift ;; esac; shift; done
+case "$path" in
+  repos/o/r) f=repo.json ;;
+  repos/o/r/contents/.github-guard\?ref=main) f=decl.json ;;
+  repos/o/r/branches/main) f=branch.json ;;
+  *) exit 1 ;;
+esac
+[ -f "$GHSTUB/$f" ] || { echo 'gh: Not Found (HTTP 404)' >&2; exit 1; }
+jq -r "$expr" "$GHSTUB/$f"
+STUB
+chmod +x "$bin/gh"
+
+# on_github <server .github-guard or ""> <protection JSON or "">: a target whose
+# origin is github.com:o/r. An empty argument means gh cannot fetch that thing.
+on_github() {
+  target
+  git -C "$repo" remote add origin git@github.com:o/r.git
+  export GHSTUB="$root/ghstub$n"
+  mkdir -p "$GHSTUB"
+  : > "$GHSTUB/calls"
+  printf '{"default_branch":"main"}\n' > "$GHSTUB/repo.json"
+  if [ -n "$1" ]; then
+    printf '{"type":"file","encoding":"base64","content":"%s"}\n' \
+      "$(printf '%s' "$1" | base64 | tr -d '\n')" > "$GHSTUB/decl.json"
+  fi
+  if [ -n "$2" ]; then
+    printf '{"name":"main","protection":%s}\n' "$2" > "$GHSTUB/branch.json"
+  fi
+}
+gh_status() { PATH="$bin:$PATH" status "$@"; }
+
+on_github $'[checks]\n\trequired = ci-ok\n' \
+  '{"enabled":true,"required_status_checks":{"contexts":["test-a","test-b"],"checks":[{"context":"test-a"},{"context":"test-b"}]}}'
+out=$(gh_status "$repo"); rc=$?
+says unapplied          "$out" "a declaration protection does not require reads as unapplied"
+says "declared: ci-ok"  "$out" "the declared set is named"
+says "required: test-a, test-b" "$out" "the set protection actually requires is named"
+[ "$rc" = 1 ] && ok "exit 1 when a declared gate is not applied" || bad "exit $rc, want 1 when unapplied"
+
+on_github $'[checks]\n\trequired = ci-ok\n' \
+  '{"enabled":true,"required_status_checks":{"contexts":["ci-ok"],"checks":[{"context":"ci-ok"}]}}'
+out=$(gh_status "$repo"); rc=$?
+says     current   "$out" "a declaration protection requires exactly is current"
+says_not unapplied "$out" x "an applied declaration is not called unapplied"
+[ "$rc" = 0 ] && ok "exit 0 when the declared gate is applied" || bad "exit $rc, want 0 when applied"
+
+on_github $'[checks]\n\trequired = ci-ok\n' \
+  '{"enabled":true,"required_status_checks":{"contexts":["ci-ok","extra"],"checks":[]}}'
+out=$(gh_status "$repo")
+says unapplied "$out" "a required check the declaration does not name is a difference too"
+
+on_github $'[checks]\n\trequired = none\n' \
+  '{"enabled":false,"required_status_checks":{"enforcement_level":"off","contexts":[],"checks":[]}}'
+out=$(gh_status "$repo"); rc=$?
+says current "$out" "required = none against nothing required is current"
+[ "$rc" = 0 ] && ok "exit 0 for an applied 'none'" || bad "exit $rc, want 0 for an applied 'none'"
+
+on_github $'[checks]\n\trequired = none\n' \
+  '{"enabled":true,"required_status_checks":{"contexts":["CI"],"checks":[]}}'
+out=$(gh_status "$repo")
+says unapplied "$out" "required = none while protection still requires a check is unapplied"
+
+# Nothing declared is not a disagreement: discovery is the hook's job.
+on_github '' '{"enabled":true,"required_status_checks":{"contexts":["CI"],"checks":[]}}'
+out=$(gh_status "$repo"); rc=$?
+says_not unapplied "$out" x "no server .github-guard is not reported as unapplied"
+[ "$rc" = 0 ] && ok "exit 0 when nothing is declared" || bad "exit $rc, want 0 when nothing is declared"
+
+# An unreadable protection is "cannot tell", never "requires nothing".
+on_github $'[checks]\n\trequired = ci-ok\n' ''
+out=$(gh_status -v "$repo"); rc=$?
+says_not unapplied "$out" x "unreadable protection is not called unapplied"
+says "not read" "$out" "-v says the required checks could not be read"
+[ "$rc" = 0 ] && ok "exit 0 when protection cannot be read" || bad "exit $rc, want 0 when protection cannot be read"
+
+# A branch payload with no protection field at all is the same "cannot tell".
+on_github $'[checks]\n\trequired = ci-ok\n' 'null'
+out=$(gh_status "$repo")
+says_not unapplied "$out" x "a missing protection field is not read as nothing required"
+
+# A repo that is not on GitHub is never asked about.
+target
+git -C "$repo" remote add origin https://example.invalid/o/r.git
+export GHSTUB="$root/ghstub-none"; mkdir -p "$GHSTUB"; : > "$GHSTUB/calls"
+out=$(gh_status "$repo")
+[ ! -s "$GHSTUB/calls" ] && ok "a non-GitHub origin makes no gh call" || bad "gh was called for a non-GitHub origin: $(cat "$GHSTUB/calls")"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
 echo "status-sh: all $pass checks passed"

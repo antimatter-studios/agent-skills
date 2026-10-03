@@ -67,9 +67,11 @@ It reports each repo as `current`, `behind` (matching an earlier release, named
 by its commit), `customised` (matching no release — someone improved it in
 place), `stranded` (a tracked `.githooks/` still holding guards that no longer
 run), `unread` (a `.github-guard` the guards cannot parse, or a declaration
-left in the old one-file-per-fact layout) or `inert` (`core.hooksPath`
-overriding the lot), and exits non-zero unless everything named is current.
-With `-v` it also shows what the repo's `.github-guard` declares.
+left in the old one-file-per-fact layout), `unapplied` (the default branch's
+`checks.required` is not what branch protection requires) or `inert`
+(`core.hooksPath` overriding the lot), and exits non-zero unless everything
+named is current. With `-v` it also shows what the repo's `.github-guard`
+declares.
 
 **Why not an in-tree `.githooks/`?** Git resolves a hook path when it runs the
 hook, which for a checkout is *after* the working tree has been rewritten. With
@@ -106,7 +108,11 @@ so there is no parser to install):
 
 `checks.required` and `merge.auto` change what GitHub enforces, so they are read
 from the **default branch on the server**, never from whatever is checked out: an
-edit takes effect once it is merged. The paths are read from the **working
+edit can take effect only once it is merged. **Nothing on the server applies
+them**, though: `checks.required` reaches branch protection only when
+`github-protect-main` next runs, on a commit in an owner's clone with the guards
+installed. Until then the declaration is not the gate; `status.sh` reports that
+as `unapplied`. The paths are read from the **working
 tree**, so they work offline in a fresh clone. A clone can override the paths
 with `git config --add github-guard.paths.private <path>` (and
 `github-guard.paths.generated`); **per-clone config wins** where both exist.
