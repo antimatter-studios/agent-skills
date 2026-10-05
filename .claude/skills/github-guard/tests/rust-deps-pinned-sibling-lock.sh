@@ -388,6 +388,32 @@ jobs:
           path: am-sibling'
 check "#34-3 a later step's path: is not attributed to an earlier checkout" 0 "$(run_guard "$d")" "$d"
 
+# #85. A workflow that reads the pin from chores.yml at run time through a
+#      `pin NAME` helper -- `--branch "$(pin SIBLING_REF)"` -- names the same
+#      value chores.yml declares, so the guard resolves it there. Unresolved,
+#      it blocked every commit in such a repository, whatever it changed.
+d="$root/p85a"; make_case "$d" "0.4.1" '
+jobs:
+  release:
+    steps:
+      - run: |
+          pin() { sed -n "s/^  $1: *//p" chores.yml; }
+          git clone --depth 1 --branch "$(pin SIBLING_REF)" https://github.com/x/am-sibling.git ../am-sibling'
+printf 'version: "3"\nvars:\n  SIBLING_REF: v0.4.1\n' > "$d/chores.yml"
+( cd "$d" && git add chores.yml >/dev/null 2>&1 )
+check "#85 a pin read through \$(pin NAME) that matches the lock is allowed" 0 "$(run_guard "$d")" "$d"
+
+d="$root/p85b"; make_case "$d" "0.4.9" '
+jobs:
+  release:
+    steps:
+      - run: |
+          pin() { sed -n "s/^  $1: *//p" chores.yml; }
+          git clone --depth 1 --branch "$(pin SIBLING_REF)" https://github.com/x/am-sibling.git ../am-sibling'
+printf 'version: "3"\nvars:\n  SIBLING_REF: v0.4.1\n' > "$d/chores.yml"
+( cd "$d" && git add chores.yml >/dev/null 2>&1 )
+check "#85 a pin read through \$(pin NAME) that disagrees with the lock is still blocked" 1 "$(run_guard "$d")" "$d"
+
 echo
 if [ "$fail" = 0 ]; then
   echo "rust-deps-pinned-sibling-lock: all $pass checks passed"

@@ -309,10 +309,11 @@ if [ -f Cargo.lock ] && [ -d .github/workflows ]; then
       return ""
     }
     function fetch(what, ref, ln, st, jb) {
-      nf++; Fw[nf] = what; Fr[nf] = ref; Fl[nf] = ln; Fs[nf] = st; Fj[nf] = jb
+      nf++; Fw[nf] = what; Fr[nf] = ref; Fl[nf] = ln; Fs[nf] = st; Fj[nf] = jb; Fx[nf] = curcmd
     }
     # One shell command (a logical line split at && || ;).
     function command(s, ln,   n, tok, i, t, ref, slot, rest, k) {
+      curcmd = s
       n = split(trim(s), tok, /[[:space:]]+/)
       if (s ~ /(^|[[:space:]])git[[:space:]]+(-[^[:space:]]+[[:space:]]+)*clone([[:space:]]|$)/) {
         slot = 0; ref = ""
@@ -434,7 +435,17 @@ if [ -f Cargo.lock ] && [ -d .github/workflows ]; then
         ref = Fr[i]; shown = Fw[i] " " ref
         if (ref == "") { printf "%s:%d: %s (no pin; not checked)\n", file, Fl[i], Fw[i]; continue }
         val = ref
-        if (ref ~ /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/) {
+        # `$(pin NAME)`: a helper that reads NAME from chores.yml at run time
+        # (#85). The tokenizer split it at the space, so the whole thing is
+        # read back from the line the fetch is on.
+        if (ref ~ /^[$][(]pin$/ && match(Fx[i], /[$][(]pin[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*[)]/)) {
+          name = substr(Fx[i], RSTART, RLENGTH)
+          sub(/^[$][(]pin[[:space:]]+/, "", name); sub(/[[:space:]]*[)]$/, "", name)
+          val = (name in chores) ? chores[name] : ""
+          if (val == "") { printf "%s:%d: %s (cannot resolve; not checked)\n", file, Fl[i], shown; continue }
+          shown = Fw[i] " $(pin " name ") = " val
+        }
+        else if (ref ~ /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/) {
           name = ref; gsub(/[$\{\}]/, "", name)
           val = lookup(name, Fs[i], Fj[i])
           if (val == "") { printf "%s:%d: %s (cannot resolve; not checked)\n", file, Fl[i], shown; continue }
