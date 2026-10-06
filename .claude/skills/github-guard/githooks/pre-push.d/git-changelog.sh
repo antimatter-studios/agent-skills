@@ -27,12 +27,17 @@ dir=$(cd "$(dirname "$0")/.." && pwd)   # the hooks dir
 # heading up to the next "## v" heading, with leading blank lines trimmed.
 # Reads the changelog on stdin.
 changelog_section() {  # $1 = version, no leading v
+  # A version heading is `## vX.Y.Z`, `## [X.Y.Z]` or `## X.Y.Z`, anything after
+  # it (a date, a title) ignored. The section ends at the next `## ` heading or
+  # at Keep a Changelog's link definitions (`[x]: url`) at the end of the file.
   awk -v ver="$1" '
-    /^##[[:space:]]+v/ {
-      s=$0; sub(/^##[[:space:]]+v/, "", s); split(s, a, /[[:space:]]/); v=a[1]
+    /^##[[:space:]]/ {
       if (insec) exit
-      if (v == ver) { insec=1; next }
+      s=$0; sub(/^##[[:space:]]+/, "", s); sub(/^\[/, "", s); sub(/^v/, "", s)
+      split(s, a, /[][[:space:]]/)
+      if (a[1] == ver) { insec=1; next }
     }
+    insec && /^\[[^]]+\]:[[:space:]]/ { exit }
     insec {
       if (!started && $0 ~ /^[[:space:]]*$/) next
       started=1; print
@@ -44,8 +49,10 @@ changelog_section() {  # $1 = version, no leading v
 # for the "Full Changelog" compare link. Empty for the first release.
 changelog_prev_version() {  # $1 = version, no leading v
   awk -v ver="$1" '
-    /^##[[:space:]]+v/ {
-      s=$0; sub(/^##[[:space:]]+v/, "", s); split(s, a, /[[:space:]]/); v=a[1]
+    /^##[[:space:]]/ {
+      s=$0; sub(/^##[[:space:]]+/, "", s); sub(/^\[/, "", s); sub(/^v/, "", s)
+      split(s, a, /[][[:space:]]/); v=a[1]
+      if (v !~ /^[0-9]+\.[0-9]+/) next
       if (found) { print v; exit }
       if (v == ver) found=1
     }
