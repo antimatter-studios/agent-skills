@@ -288,15 +288,19 @@ git -C "$repo" commit -q --allow-empty -m attack1
 
 # 6b. Install, then take the hostile branch again. A probe guard in the real
 # hooks directory shows hooks ran at all, so an absent marker means the branch's
-# hook was ignored, not that hooks were skipped.
+# hook was ignored, not that hooks were skipped. The probe sorts first: guards
+# run in order and stop at the first refusal, and git-block-tracked-hooks
+# refuses this commit, because the hostile branch tracks .githooks/.
 git -C "$repo" checkout -qf "$base_branch"
 "$skill/install.sh" "$repo" >/dev/null 2>&1
 mkdir -p "$hooks/pre-commit.d"
-printf '#!/usr/bin/env bash\nprintf ran > "%s"\nexit 0\n' "$probe" > "$hooks/pre-commit.d/zz-probe.sh"
-chmod +x "$hooks/pre-commit.d/zz-probe.sh"
+printf '#!/usr/bin/env bash\nprintf ran > "%s"\nexit 0\n' "$probe" > "$hooks/pre-commit.d/00-probe.sh"
+chmod +x "$hooks/pre-commit.d/00-probe.sh"
 rm -f "$marker" "$probe"
 git -C "$repo" checkout -qf hostile
-git -C "$repo" commit -q --allow-empty -m attack2
+git -C "$repo" commit -q --allow-empty -m attack2 2>/dev/null \
+    && bad "a commit on a branch that tracks .githooks/ was accepted" \
+    || ok "a commit on a branch that tracks .githooks/ is refused"
 [ -f "$probe" ]   && ok "installed hooks still run after the checkout" \
                   || bad "installed hooks did not run — the marker check below is vacuous"
 [ ! -f "$marker" ] && ok "the branch's .githooks/pre-commit did NOT run" \
