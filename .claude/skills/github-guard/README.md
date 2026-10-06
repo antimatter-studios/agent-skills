@@ -205,7 +205,7 @@ avoided is gone anyway, since the installed copy is no longer a committed one.
 | `git-block-merge-commits` | pre-push | yes | Refuses to **push** a range containing a merge commit. |
 | `git-block-bad-files` | pre-commit | yes | Refuses staged keys/certs, credential blobs, env files, OS junk, merge cruft. Conservative (no broad `*secret*`; `.env.example` allowed). |
 | `git-no-trailing-whitespace` | pre-commit | yes | Blocks staged changes that add trailing whitespace / space-before-tab. |
-| `git-block-tracked-hooks` | pre-commit | yes | Refuses to commit anything added or changed under `.githooks/`: a committed hook runs whatever the last merged change put there. The guards belong in `.git/hooks`, per clone. Deleting `.githooks/` is allowed. |
+| `git-block-tracked-hooks` | pre-commit | yes | Refuses every commit while `.githooks/` is tracked, whether or not the commit touches it: a committed hook runs whatever the last merged change put there. The guards belong in `.git/hooks`, per clone. The commit that deletes `.githooks/` is allowed. |
 | `git-block-private-paths` | pre-commit | yes | Refuses to commit anything under `paths.private`. No declaration, no opinion; an unparseable `.github-guard` blocks. |
 | `generated-normalise` | pre-commit | no | Strips trailing whitespace under `paths.generated` and re-stages. |
 | `git-block-large-files` | pre-commit | yes | Blocks staged blobs (the index, not the working tree) over a limit (default 10 MiB, `GITHUB_GUARD_MAX_FILE_MB`) unless LFS-tracked. |
