@@ -61,6 +61,17 @@ out=$(run_guard); rc=$?
 [ "$rc" -ne 0 ] && ok "changing a committed hook is refused" || bad "changing a committed hook is refused (rc=$rc)"
 git -C "$repo" reset -q --hard
 
+# A commit that does not touch them is refused too, while they are tracked:
+# a repository that still carries .githooks/ has to drop it at its next
+# commit, rather than keep it for as long as nobody edits it.
+printf 'more\n' >> "$repo/readme.txt"
+git -C "$repo" add readme.txt
+out=$(run_guard); rc=$?
+[ "$rc" -ne 0 ] && ok "any commit is refused while .githooks/ is tracked" || bad "any commit is refused while .githooks/ is tracked (rc=$rc)"
+case "$out" in *"git rm -r --cached .githooks"*|*"git rm -r .githooks"*) ok "and the message says how to remove them" ;;
+  *) bad "and the message says how to remove them (output: ${out//$'\n'/ | })" ;; esac
+git -C "$repo" reset -q --hard
+
 # Deleting them is the fix, so the deletion goes through.
 git -C "$repo" rm -q -r .githooks
 out=$(run_guard); rc=$?
