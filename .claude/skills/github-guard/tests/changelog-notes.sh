@@ -77,6 +77,57 @@ out=$(run v9.9.9); rc=$?
 [ "$rc" != 0 ] && ok "an undocumented version fails" || bad "an undocumented version exited 0 — a release would publish empty notes"
 says "no '## v9.9.9' section" "$out" "and says which section is missing"
 
+# KEEP A CHANGELOG headings: `## [1.2.0] - date`, an `## [Unreleased]`
+# section above the releases, and link definitions at the end of the file.
+# The guard's tag check already accepts these headings; the release body must
+# come from them too, or a repository in that style has a guard that passes
+# its tags and an action that cannot write their notes.
+kac="$root/kac"
+git init -q "$kac"
+git -C "$kac" remote add origin git@github.com:an-org/kac-repo.git
+cat > "$kac/CHANGELOG.md" <<'CL'
+# Changelog
+
+## [Unreleased]
+
+Not released yet, and never in a release body.
+
+## [0.2.10] — 2026-10-06
+
+Ten, which 0.2.1 must not be mistaken for.
+
+## [0.2.1] - 2026-10-01
+
+### Fixed
+
+- the bracketed section's own text
+
+## 0.2.0
+
+The bare form.
+
+[Unreleased]: https://github.com/an-org/kac-repo/compare/v0.2.10...HEAD
+[0.2.10]: https://github.com/an-org/kac-repo/compare/v0.2.1...v0.2.10
+[0.2.1]: https://github.com/an-org/kac-repo/compare/v0.2.0...v0.2.1
+CL
+runk() { ( cd "$kac" && "$notes" notes "$1" 2>&1 ); }
+
+out=$(runk v0.2.1); rc=$?
+[ "$rc" = 0 ] && ok "a bracketed [X.Y.Z] heading extracts" || bad "exit $rc for a bracketed heading: ${out//$'\n'/ | }"
+says "the bracketed section's own text" "$out" "its body is that section"
+says_not "Ten, which"                   "$out" x "0.2.10 is not mistaken for 0.2.1"
+says_not "Not released yet"             "$out" x "the [Unreleased] section is not included"
+says "compare/v0.2.0...v0.2.1"          "$out" "the previous version is found under a bare heading"
+
+out=$(runk v0.2.10)
+says "Ten, which"                       "$out" "0.2.10 extracts on its own"
+says "compare/v0.2.1...v0.2.10"         "$out" "its compare link spans the bracketed previous version"
+
+out=$(runk v0.2.0); rc=$?
+[ "$rc" = 0 ] && ok "a bare X.Y.Z heading extracts" || bad "exit $rc for a bare heading"
+says "The bare form."                   "$out" "its body is that section"
+says_not "]: https://"                  "$out" x "link definitions at the end are not part of the last section"
+
 # A repo with no changelog at all: also a failure, and for its own reason.
 bare="$root/bare"; git init -q "$bare"
 out=$( cd "$bare" && "$notes" notes v1.0.0 2>&1 ); rc=$?
