@@ -208,7 +208,41 @@ by the conventional-commit prefix:
 | `docs:` | no — the entry would just say "updated the docs" |
 | `style:` / `test:` | no |
 
-When an entry is warranted:
+When an entry is warranted, **first check for a `changelog.d/` directory**
+at the repository root. Its presence decides where the entry goes.
+
+**If `changelog.d/` exists** (the repository keeps fragments — agent-core v6):
+
+- **Never edit `CHANGELOG.md` directly.** `changelog-check.sh` in lint
+  refuses an unreleased entry written there.
+- Write the entry to `changelog.d/<branch>.md`, where `<branch>` is
+  `git branch --show-current` with `/` replaced by `-` (`fix/run-end-bound`
+  → `changelog.d/fix-run-end-bound.md`). Create the file on the branch's first
+  such commit; on later commits, add to it. One file per pull request.
+- The file holds only level-3 headings, each over `- ` entries — no `#` or
+  `##` heading, no text before the first heading:
+
+  ```markdown
+  ### Fixed
+
+  - **The run-end bound is checked.** A run that ends past the device is
+    refused rather than read.
+  ```
+
+  Use Keep a Changelog's headings (`Added`, `Changed`, `Deprecated`,
+  `Removed`, `Fixed`, `Security`) where one fits; another heading is allowed
+  and sorts after them. Add to an existing heading in the file rather than
+  repeating it.
+- **A `chore(release):` commit gathers instead of writing.** Run
+  `bash ../rust-fs-core/scripts/changelog-gather.sh VERSION` (in rust-fs-core
+  itself, `bash scripts/changelog-gather.sh VERSION`). It writes every
+  fragment into a dated `## [VERSION]` section of `CHANGELOG.md` and stages
+  the fragments' deletion; stage `CHANGELOG.md` with the release commit. Do
+  not write the section by hand. If the repository also keeps a README
+  changelog section, the release commit is the one that updates it (rule 2
+  below); an ordinary commit leaves it alone.
+
+**If there is no `changelog.d/`**, edit the changelog files directly:
 
 1. **`CHANGELOG.md`**: under the appropriate version heading. If
    there is no in-progress unreleased section and this is not a
