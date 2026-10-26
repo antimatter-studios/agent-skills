@@ -90,6 +90,7 @@ so there is no parser to install):
 # .github-guard — declarations github-guard reads (see the skill's README)
 [checks]
 	required = CI                # repeat the key for more checks; `none` = require none
+	strict = false               # with a merge queue: don't require PRs to be up to date
 [merge]
 	auto = true                  # allow auto-merge (see below)
 [paths]
@@ -100,13 +101,20 @@ so there is no parser to install):
 - **`checks.required`** — the status checks `github-protect-main` requires on the
   default branch. Overrides discovery exactly; `none` requires none; an empty
   or comment-only `[checks]` is ignored with a warning.
+- **`checks.strict`** — whether a pull request must be up to date with the
+  default branch before it merges ("Require branches to be up to date"). Default
+  `true`. Set `false` when the branch has a merge queue: the queue tests every
+  pull request on top of the current branch at merge time, so requiring each to
+  be current as well only re-runs its checks whenever the branch moves. A value
+  that is not true or false keeps `true`, with a warning. `status.sh` compares it
+  only when declared.
 - **`merge.auto`** — `true` lets `github-auto-merge` turn on *Allow auto-merge*
   (only once the default branch requires status checks); `false` turns it off;
   absent changes nothing.
 - **`paths.private`** / **`paths.generated`** — paths `git-block-private-paths`
   refuses to commit, and paths `generated-normalise` tidies.
 
-`checks.required` and `merge.auto` change what GitHub enforces, so they are read
+`checks.required`, `checks.strict` and `merge.auto` change what GitHub enforces, so they are read
 from the **default branch on the server**, never from whatever is checked out: an
 edit can take effect only once it is merged. **Nothing on the server applies
 them**, though: `checks.required` reaches branch protection only when

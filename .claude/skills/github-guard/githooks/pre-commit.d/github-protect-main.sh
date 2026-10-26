@@ -148,7 +148,8 @@ prot=$(gh api "repos/$slug/branches/$branch/protection" --jq \
      ((.required_status_checks.checks // []) | map({context: .context}) | unique | tojson),
      (.required_pull_request_reviews.required_approving_review_count // 0),
      (.required_pull_request_reviews.dismiss_stale_reviews // false),
-     (.required_pull_request_reviews.require_code_owner_reviews // false)' 2>"$prot_err")
+     (.required_pull_request_reviews.require_code_owner_reviews // false),
+     (.required_status_checks.strict // true)' 2>"$prot_err")
 prot_rc=$?
 prot_msg=$(cat "$prot_err"); rm -f "$prot_err"
 if [ "$prot_rc" != 0 ]; then
@@ -161,11 +162,12 @@ if [ "$prot_rc" != 0 ]; then
   esac
 fi
 { IFS= read -r has_reviews; IFS= read -r has_admins; IFS= read -r current; IFS= read -r review_count
-  IFS= read -r dismiss_stale; IFS= read -r code_owners; } <<<"$prot"
+  IFS= read -r dismiss_stale; IFS= read -r code_owners; IFS= read -r current_strict; } <<<"$prot"
 [ -n "$current" ] || current='[]'
 # Settings this guard does not manage are carried over as they are, never reset.
 [ "$dismiss_stale" = true ] || dismiss_stale=false
 [ "$code_owners" = true ] || code_owners=false
+[ "$current_strict" = false ] || current_strict=true
 # Preserve any already-configured approval count instead of hardcoding 0: re-applying
 # protection must never silently DOWNGRADE a team's "require N reviews" back to 0.
 # Default 0 (require a PR, no approvals) for the solo case / a fresh unprotected branch.
@@ -196,6 +198,12 @@ case "$review_count" in '' | *[!0-9]*) review_count=0 ;; esac
 # to REMOVE a required check that discovery would otherwise keep re-adding, so
 # unlike discovery this path is allowed to strip.
 declared='[]'
+# `checks.strict` — whether a pull request must be up to date with the branch
+# before it merges. Default true. A repo with a merge queue says false: the queue
+# tests every pull request on top of the current branch at merge time, so
+# requiring each one to be current as well only re-runs its checks every time the
+# branch moves. Read from the same server-side declaration as checks.required.
+strict=true
 if command -v jq >/dev/null 2>&1; then
   # This declaration is a PRIVILEGED input — it can REMOVE required checks (and
   # `none` strips them all) — so read it from the TRUSTED default branch on the
@@ -231,6 +239,13 @@ if command -v jq >/dev/null 2>&1; then
        && { gg_decl_config "$decl_tmp" --get-all checks.required >/dev/null 2>&1 \
             || grep -qiE '^[[:space:]]*\[[[:space:]]*checks[[:space:]]*\]' "$decl_tmp"; }; then
       echo "github-guard: $GG_DECL_FILE on $branch lists no checks.required — ignoring it (write 'required = none' to require none)" >&2
+    fi
+    if gg_decl_config "$decl_tmp" --get checks.strict >/dev/null 2>&1; then
+      case "$(gg_decl_config "$decl_tmp" --type=bool --get checks.strict 2>/dev/null)" in
+        true) strict=true ;;
+        false) strict=false ;;
+        *) echo "github-guard: $GG_DECL_FILE on $branch has checks.strict that is not true or false — keeping strict" >&2 ;;
+      esac
     fi
   fi
 fi
@@ -328,7 +343,8 @@ else
 fi
 
 # Already exactly how we want it (PR-mode + admins + matching checks)? Skip.
-if [ "$has_reviews" = "true" ] && [ "$has_admins" = "true" ] && [ "${current:-[]}" = "$want" ]; then
+if [ "$has_reviews" = "true" ] && [ "$has_admins" = "true" ] && [ "${current:-[]}" = "$want" ] \
+   && { [ "$want" = "[]" ] || [ "$current_strict" = "$strict" ]; }; then
   exit 0
 fi
 
@@ -336,7 +352,7 @@ if [ "$want" = "[]" ]; then
   rsc='null'
   echo "github-guard: protecting $slug:$branch (require PR, enforce admins, linear history)…" >&2
 else
-  rsc="{ \"strict\": true, \"checks\": $want }"
+  rsc="{ \"strict\": $strict, \"checks\": $want }"
   echo "github-guard: protecting $slug:$branch (require PR, enforce admins, linear history, required checks $want)…" >&2
 fi
 

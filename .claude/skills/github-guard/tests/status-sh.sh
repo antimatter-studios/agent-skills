@@ -264,6 +264,7 @@ case "$path" in
   repos/o/r) f=repo.json ;;
   repos/o/r/contents/.github-guard\?ref=main) f=decl.json ;;
   repos/o/r/branches/main) f=branch.json ;;
+  repos/o/r/branches/main/protection/required_status_checks) f=rsc.json ;;
   *) exit 1 ;;
 esac
 [ -f "$GHSTUB/$f" ] || { echo 'gh: Not Found (HTTP 404)' >&2; exit 1; }
@@ -287,6 +288,8 @@ on_github() {
   if [ -n "$2" ]; then
     printf '{"name":"main","protection":%s}\n' "$2" > "$GHSTUB/branch.json"
   fi
+  # Optional third argument: "require up to date" as protection enforces it.
+  if [ -n "${3:-}" ]; then printf '{"strict":%s}\n' "$3" > "$GHSTUB/rsc.json"; fi
 }
 gh_status() { PATH="$bin:$PATH" status "$@"; }
 
@@ -320,6 +323,22 @@ on_github $'[checks]\n\trequired = none\n' \
   '{"enabled":true,"required_status_checks":{"contexts":["CI"],"checks":[]}}'
 out=$(gh_status "$repo")
 says unapplied "$out" "required = none while protection still requires a check is unapplied"
+
+# checks.strict, compared only when declared (#strict).
+applied='{"enabled":true,"required_status_checks":{"contexts":["ci-ok"],"checks":[{"context":"ci-ok"}]}}'
+on_github $'[checks]\n\trequired = ci-ok\n\tstrict = false\n' "$applied" true
+out=$(gh_status "$repo"); rc=$?
+says unapplied "$out" "checks.strict = false while protection requires up to date is unapplied"
+says "checks.strict" "$out" "the strict difference is named"
+[ "$rc" = 1 ] && ok "exit 1 when checks.strict is not applied" || bad "exit $rc, want 1 when strict unapplied"
+
+on_github $'[checks]\n\trequired = ci-ok\n\tstrict = false\n' "$applied" false
+out=$(gh_status "$repo")
+says current "$out" "checks.strict that protection enforces is current"
+
+on_github $'[checks]\n\trequired = ci-ok\n' "$applied" false
+out=$(gh_status "$repo")
+says current "$out" "an undeclared checks.strict is never a difference"
 
 # Nothing declared is not a disagreement: discovery is the hook's job.
 on_github '' '{"enabled":true,"required_status_checks":{"contexts":["CI"],"checks":[]}}'
