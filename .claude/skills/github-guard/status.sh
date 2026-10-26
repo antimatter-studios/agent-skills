@@ -162,8 +162,21 @@ gate_of() {
                | unique | .[] end' 2>/dev/null) \
     || { echo "unknown required checks on $branch not read"; return 0; }
   required=$(printf '%s\n' "$required" | awk 'length' | sort -u)
-  if [ "$declared" = "$required" ]; then echo same; return 0; fi
-  printf 'differs %s\t%s\n' "$(names "$declared")" "$(names "$required")"
+  if [ "$declared" != "$required" ]; then
+    printf 'differs %s\t%s\n' "$(names "$declared")" "$(names "$required")"; return 0
+  fi
+  # checks.strict against "require branches to be up to date". The
+  # protection endpoint needs admin rights; a read that fails says nothing.
+  # Compared only when declared: an undeclared repo is the hook's default, not a
+  # disagreement, and calling it unapplied would flag every repo that turned it off.
+  dstrict=$(git config --file "$file" --no-includes --type=bool --get checks.strict 2>/dev/null) || dstrict=
+  case "$dstrict" in true|false) ;; *) dstrict= ;; esac
+  astrict=
+  [ -z "$dstrict" ] || astrict=$(gh api "repos/$slug/branches/$branch/protection/required_status_checks" --jq .strict 2>/dev/null) || astrict=
+  if [ -n "$dstrict" ] && [ -n "$astrict" ] && [ "$astrict" != "$dstrict" ]; then
+    printf 'strict %s\t%s\n' "$dstrict" "$astrict"; return 0
+  fi
+  echo same
 }
 
 # One name per line in, "a, b" out, or "(none)" for an empty set.
@@ -280,6 +293,10 @@ for target in "${repos[@]}"; do
         gate=${gate#differs }
         unapplied=1
         notes+=("checks.required is not what protection requires — declared: ${gate%%$'\t'*} / required: ${gate#*$'\t'}") ;;
+      strict\ *)
+        gate=${gate#strict }
+        unapplied=1
+        notes+=("checks.strict is not what protection enforces — declared: ${gate%%$'\t'*} / enforced: ${gate#*$'\t'}") ;;
       unknown\ *)
         details+=("gate     $slug: ${gate#unknown }, so the declared gate was not read against protection") ;;
     esac

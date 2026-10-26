@@ -85,8 +85,9 @@ case "$url" in
     # What gh prints for an unprotected branch, and for a read that failed.
     [ "${GH_PROTECTED:-1}" = 1 ] || { echo 'gh: Branch not protected (HTTP 404)' >&2; exit 1; }
     [ -z "${GH_PROTECTION_ERROR:-}" ] || { echo "gh: $GH_PROTECTION_ERROR" >&2; exit 1; }
-    printf '%s\n%s\n%s\n%s\n%s\n%s\n' "${GH_REVIEWS:-true}" "${GH_ADMINS:-true}" \
-      "${GH_CURRENT:-[]}" "${GH_REVIEW_COUNT:-0}" "${GH_DISMISS_STALE:-false}" "${GH_CODE_OWNERS:-false}" ;;
+    printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "${GH_REVIEWS:-true}" "${GH_ADMINS:-true}" \
+      "${GH_CURRENT:-[]}" "${GH_REVIEW_COUNT:-0}" "${GH_DISMISS_STALE:-false}" "${GH_CODE_OWNERS:-false}" \
+      "${GH_STRICT:-true}" ;;
   */actions/*|repos/*)        printf '%s\n' "${GH_DEFAULT_BRANCH:-main}" ;;
   *) exit 1 ;;
 esac
@@ -350,6 +351,47 @@ export GH_PASSED_OLDER=$'Frontend (vitest)\n'
 export GH_CURRENT='[]'
 run_case 'an earlier main success preserves a conditional check' ABSENT
 expect_checks '["CI","Frontend (vitest)"]'
+
+# 20–23. `checks.strict`: whether a pull request must be up to date before it
+#     merges. The guard always wrote true, so a repo with a merge queue (which
+#     tests each pull request on top of the branch at merge time) had "require
+#     up to date" switched back on by the next commit in any clone.
+expect_strict() {
+  local want="$1" got
+  if [ ! -f "$CASE_DIR/put.json" ]; then got=NONE
+  else got=$(jq -c '.required_status_checks.strict' "$CASE_DIR/put.json"); fi
+  if [ "$got" = "$want" ]; then
+    pass=$((pass + 1)); printf '  ok    %s (strict)\n' "$CASE_NAME"
+  else
+    fail=$((fail + 1)); printf '  FAIL  %s\n        want strict %s\n        got  %s\n' "$CASE_NAME" "$want" "$got"
+    sed 's/^/        stderr: /' "$CASE_DIR/err"
+  fi
+}
+unset GH_RECENT_SHAS GH_PASSED_OLDER GH_HEAD_OLDER
+export GH_REVIEWS=false GH_DISCOVERED=$'CI\n' GH_PASSED=$'CI\n' GH_HEAD=$'CI\n' GH_CURRENT='[{"context":"CI"}]'
+
+RAW_DECL=$'[checks]\n\trequired = CI\n\tstrict = false'
+run_case 'checks.strict = false writes strict false' RAW
+expect_strict false
+
+run_case 'no checks.strict keeps strict true' 'CI'
+expect_strict true
+
+# Everything else already matches; only strict differs, so the guard must write.
+export GH_REVIEWS=true GH_ADMINS=true GH_STRICT=true
+RAW_DECL=$'[checks]\n\trequired = CI\n\tstrict = false'
+run_case 'a strict mismatch alone re-applies protection' RAW
+expect_strict false
+export GH_STRICT=false
+run_case 'strict already false: nothing to write' RAW
+expect_strict NONE
+unset GH_STRICT
+export GH_REVIEWS=false
+
+RAW_DECL=$'[checks]\n\trequired = CI\n\tstrict = sometimes'
+run_case 'an unreadable checks.strict keeps strict true' RAW
+expect_strict true
+expect_stderr 'not true or false'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1

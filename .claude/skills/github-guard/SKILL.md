@@ -199,6 +199,7 @@ git they already run under:
 | key | read from | read by |
 | --- | --- | --- |
 | `checks.required` | the default branch, **on the server** | `github-protect-main` |
+| `checks.strict` | the default branch, **on the server** | `github-protect-main` |
 | `merge.auto` | the default branch, **on the server** | `github-auto-merge`, the auto-merge action |
 | `paths.private` | the working tree (or per-clone config) | `git-block-private-paths` |
 | `paths.generated` | the working tree (or per-clone config) | `generated-normalise` |
