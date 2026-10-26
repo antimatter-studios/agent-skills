@@ -56,6 +56,26 @@ gg_user_owns() {
   [ "$role" = "admin" ]
 }
 
+# Settings writers run only from the default branch at the exact commit GitHub
+# currently serves. A branch name or origin/<branch> alone is insufficient:
+# both can be stale in a clone. Read the live ref; an offline, unborn, detached,
+# ahead or behind checkout cannot reconcile repository-wide settings. Returning
+# false skips settings writes, never blocks the commit or needs a CI credential.
+gg_settings_checkout_is_current() {
+  local slug="$1" branch="$2" checked_out head remote_head
+  checked_out=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || return 1
+  [ "$checked_out" = "$branch" ] || return 1
+  head=$(git rev-parse --verify 'HEAD^{commit}' 2>/dev/null) || return 1
+  remote_head=$(gh api "repos/$slug/git/ref/heads/$branch" --jq '.object.sha' 2>/dev/null) || {
+    echo "github-guard: cannot verify GitHub's $branch HEAD — skipping settings updates" >&2
+    return 1
+  }
+  if [ "$head" != "$remote_head" ]; then
+    echo "github-guard: local $branch differs from GitHub's HEAD — skipping settings updates" >&2
+    return 1
+  fi
+}
+
 # True while the local walls around the default branch are armed: github-protect-main
 # found that GitHub cannot protect this repository's default branch (branch
 # protection on a private repository needs a paid plan) and recorded it here,

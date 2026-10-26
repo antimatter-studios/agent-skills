@@ -45,6 +45,17 @@ The guards land in `<repo>/.git/hooks`, and the installer clears
 nothing to review — the hooks are per-clone, so each fresh clone re-runs the
 installer.
 
+**GitHub settings change only from a current default-branch checkout.** All
+three settings guards (`github-protect-main`, `github-merge-squash-only`, and
+`github-auto-merge`) require the checked-out branch to be the repository's
+default branch and its HEAD to match GitHub's live ref. Feature branches,
+detached HEADs, unborn branches, and stale or locally-ahead default branches
+make no settings writes; an unavailable ref also skips the update. A stale
+`origin/main` is never accepted as proof. Local validation guards still run.
+Declarations continue to come from the server's default branch. No settings
+credential is placed in CI. Reinstall every older clone: old hook code cannot
+enforce a restriction it does not have.
+
 Re-running it is the upgrade. It records what it placed in
 `.git/hooks/.github-guard.manifest`, so a guard retired from the payload is
 removed on the next run — and only such a guard: anything else in `.git/hooks`,

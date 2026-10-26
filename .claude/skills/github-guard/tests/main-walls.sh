@@ -161,6 +161,7 @@ printf '%s %s\n' "$([ "$put" = 1 ] && echo PUT || echo GET)" "$url" >> "$GH_LOG"
 [ "$put" = 1 ] && { cat >/dev/null; exit 1; }
 case "$url" in
   user) echo testowner ;;
+  */git/ref/heads/*) git rev-parse HEAD ;;
   */branches/*/protection)
     case "$GH_PROBE" in
       plan)      echo 'gh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)' >&2; exit 1 ;;
@@ -185,7 +186,7 @@ run_pm plan
 armed && ok "protect-main, plan refusal: walls armed" || bad "protect-main, plan refusal: walls should be armed"
 grep -q 'armed the local walls' "$root/pm.err" && ok "  … and it says so" || bad "  … without saying so"
 ! grep -q '^PUT' "$GH_LOG" && ok "  … and it attempts no protection PUT" || bad "  … but still attempted the PUT"
-[ "$(wc -l < "$GH_LOG")" -le 3 ] && ok "  … and stops after the probe ($(wc -l < "$GH_LOG" | tr -d ' ') gh calls)" \
+[ "$(wc -l < "$GH_LOG")" -le 4 ] && ok "  … and stops after the HEAD check and probe ($(wc -l < "$GH_LOG" | tr -d ' ') gh calls)" \
   || bad "  … but went on to make $(wc -l < "$GH_LOG" | tr -d ' ') gh calls"
 run_pm plan
 armed && [ ! -s "$root/pm.err" ] && ok "protect-main, plan refusal again: still armed, quietly" \

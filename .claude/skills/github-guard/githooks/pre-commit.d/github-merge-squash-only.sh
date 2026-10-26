@@ -12,6 +12,10 @@ gg_have_gh || { echo "github-guard: gh not installed/authed — skipping merge-s
 owner=${slug%%/*}
 gg_user_owns "$owner" || exit 0
 
+branch=$(gh api "repos/$slug" --jq '.default_branch' 2>/dev/null) || exit 0
+[ -n "$branch" ] || exit 0
+gg_settings_checkout_is_current "$slug" "$branch" || exit 0
+
 # Reconcile the FULL desired state — SQUASH ONLY — whenever any of the three
 # differ. Reading only allow_merge_commit missed the common case of a repo that
 # already has merge commits off but still disallows squash (e.g. rebase-only): the

@@ -35,6 +35,7 @@ gg_user_owns "$owner" || exit 0
 branch=$(gh api "repos/$slug" --jq '.default_branch' 2>/dev/null) || {
   echo "github-guard: couldn't read default branch for $slug — skipping auto-merge setting" >&2; exit 0; }
 [ -n "$branch" ] || exit 0
+gg_settings_checkout_is_current "$slug" "$branch" || exit 0
 
 # Read from the default branch on the SERVER, never the working tree: turning
 # auto-merge on changes what a pull request can do without anyone watching, so
