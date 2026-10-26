@@ -54,6 +54,7 @@ done
 if [ "$method" = PATCH ]; then printf '%s\n' "${fields[@]}" >> "$GH_PATCH_LOG"; exit 0; fi
 case "$url" in
   user) printf '%s\n' "${GH_LOGIN:-testowner}" ;;
+  */git/ref/heads/*) git rev-parse HEAD ;;
   user/memberships/orgs/*) exit 1 ;;
   */contents/*)
     case "$url" in */contents/.github-guard\?*) ;; *) exit 1 ;; esac
@@ -80,7 +81,8 @@ PATH="$root/bin:$PATH"
 guard() {
   local name="$1" dir
   n=$((n + 1)); dir="$root/g$n"
-  git init -q "$dir"
+  git init -q -b main "$dir"
+  git -C "$dir" -c user.name=T -c user.email=t@example.com -c commit.gpgsign=false commit -q --allow-empty -m base
   git -C "$dir" remote add origin git@github.com:testowner/testrepo.git
   mkdir -p "$dir/.hooks"; cp -R "$src/." "$dir/.hooks/"
   [ -z "${WORKTREE_DECL:-}" ] || printf '%s\n' "$WORKTREE_DECL" > "$dir/.github-guard"

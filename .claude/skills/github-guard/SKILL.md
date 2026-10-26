@@ -57,6 +57,15 @@ self-selecting at runtime — no per-project config.
 
 ## Shipped guards
 
+**Settings writes require a current default-branch checkout.** The three
+`github-*` settings guards first verify that the checked-out branch is the
+repository's default branch and local HEAD exactly matches GitHub's live ref.
+They skip feature branches, detached or unborn HEADs, ahead or behind default
+branches, and a ref they cannot read. They never trust `origin/main` as a
+freshness check. Other local validation guards still run. The privileged
+declarations are still read from the server, and no settings token is added to
+CI. Reinstall every clone so old hooks cannot continue writing from branches.
+
 - **`github-merge-squash-only`** (pre-commit, fail-open) — heals the GitHub repo
   to SQUASH ONLY — `allow_squash_merge=true`, `allow_merge_commit=false`,
   `allow_rebase_merge=false`. One commit per pull request: a branch's WIP history is
@@ -448,6 +457,12 @@ A path matches on whole components: `tmp` blocks `tmp/` and a file named `tmp`,
 and does not block `tmpl/`.
 
 ## Tests
+
+- `tests/settings-main-only.sh [githooks-dir]` — all three settings writers
+  against real branches and linked worktrees, with API mutations captured by a
+  `gh` stub. Current default branches (including one named `trunk`) must write;
+  feature, detached, stale, ahead, unborn, and unverifiable checkouts must not.
+  A stale tracking ref is explicitly exercised.
 
 - `tests/main-walls.sh [githooks-dir]` — the walls around the default branch,
   each in pairs (armed refuses, unarmed allows, so a wall that blocked

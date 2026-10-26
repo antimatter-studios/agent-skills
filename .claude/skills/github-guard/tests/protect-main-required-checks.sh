@@ -53,6 +53,7 @@ done
 if [ "$put" = 1 ]; then cat > "$GH_CAPTURE"; exit "${GH_PUT_RC:-0}"; fi
 case "$url" in
   user)                       printf '%s\n' "${GH_LOGIN:-testowner}" ;;
+  */git/ref/heads/*)           git rev-parse HEAD ;;
   */actions/runs*)            printf '%s\n' "${GH_SUITE_IDS:-1}" ;;
   */check-suites/*)           printf '%s' "${GH_DISCOVERED:-}" ;;
   */commits\?sha=*)            printf '%s\n' "${GH_RECENT_SHAS:-head}" ;;
@@ -107,7 +108,8 @@ run_case() {
   local name="$1" declared="$2" worktree="${3:-}" n dir line
   n=$((pass + fail + 1)); dir="$root/case$n"
   mkdir -p "$dir"
-  git -C "$dir" init -q 2>/dev/null
+  git -C "$dir" init -q -b main 2>/dev/null
+  git -C "$dir" -c user.name=T -c user.email=t@example.com -c commit.gpgsign=false commit -q --allow-empty -m base
   git -C "$dir" remote add origin git@github.com:testowner/testrepo.git
   mkdir -p "$dir/.hooks"
   cp -R "$src/." "$dir/.hooks/"
