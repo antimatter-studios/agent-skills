@@ -23,6 +23,10 @@
 # Both move refs/heads/main, so the ref name cannot tell them apart. What can:
 # in A the new commit is already on the remote-tracking branch; in B it is not.
 set -u
+dir=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=../lib/common.sh
+. "$dir/lib/common.sh"
+guard_enabled no-ff-main auto || exit 0
 
 # Only the "prepared" stage can refuse; "committed" and "aborted" are reports.
 [ "${1:-}" = "prepared" ] || exit 0

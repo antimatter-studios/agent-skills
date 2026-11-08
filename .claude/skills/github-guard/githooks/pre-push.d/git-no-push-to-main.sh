@@ -19,6 +19,7 @@ set -u
 dir=$(cd "$(dirname "$0")/.." && pwd)
 # shellcheck source=../lib/common.sh
 . "$dir/lib/common.sh"
+guard_enabled no-push-to-main auto || exit 0
 
 gg_walls_armed || exit 0
 

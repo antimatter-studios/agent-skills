@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+dir=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=../lib/common.sh
+. "$dir/lib/common.sh"
+guard_enabled block-merge-commit auto || exit 0
 # guard: git-block-merge-commit
 # Refuse to CREATE a merge commit locally, keeping history linear. This fires
 # on a non-fast-forward `git merge` / `git pull`. Purely local, no network.

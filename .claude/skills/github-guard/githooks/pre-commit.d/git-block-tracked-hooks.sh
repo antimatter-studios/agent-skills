@@ -14,6 +14,10 @@
 # leaves nothing tracked there, so it goes through. Bypass once with
 # `git commit --no-verify`.
 set -u
+dir=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=../lib/common.sh
+. "$dir/lib/common.sh"
+guard_enabled block-tracked-hooks auto || exit 0
 
 tracked=$(git ls-files -- .githooks)
 [ -n "$tracked" ] || exit 0

@@ -21,6 +21,7 @@ set -u
 dir=$(cd "$(dirname "$0")/.." && pwd)   # the hooks dir
 # shellcheck source=../lib/common.sh
 . "$dir/lib/common.sh"
+guard_enabled changelog auto || exit 0
 
 # --- changelog extraction (shared by the hook below and a release pipeline) ---
 # Print CHANGELOG.md's body for a version (no heading) — from its "## vX.Y.Z"

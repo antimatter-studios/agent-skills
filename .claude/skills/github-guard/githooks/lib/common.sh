@@ -140,6 +140,30 @@ gg_decl_valid() {
   [ -f "$1" ] && gg_decl_config "$1" --list >/dev/null 2>&1
 }
 
+guard_enabled() {
+  local name="$1" default="$2" value root file
+  if ! value=$(git config --get "github-guard.guards.$name" 2>/dev/null); then
+    value=$default
+    root=$(git rev-parse --show-toplevel 2>/dev/null) || root=
+    file="$root/$GG_DECL_FILE"
+    if [ -n "$root" ] && [ -e "$file" ]; then
+      if gg_decl_valid "$file"; then
+        value=$(gg_decl_config "$file" --get "guards.$name" 2>/dev/null) || value=$default
+      else
+        echo "github-guard: cannot read $GG_DECL_FILE — using default $default for $name" >&2
+      fi
+    fi
+  fi
+  case "$value" in
+    true|auto) return 0 ;;
+    false) return 1 ;;
+    *)
+      echo "github-guard: invalid guards.$name '$value' — using default $default" >&2
+      [ "$default" != false ]
+      ;;
+  esac
+}
+
 # Fetch the DEFAULT BRANCH's `.github-guard` from the SERVER into <out>.
 #
 #   gg_fetch_server_decl <owner/repo> <branch> <out>

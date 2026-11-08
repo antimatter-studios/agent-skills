@@ -11,6 +11,10 @@
 # (.env.example/.sample/.template/.dist) are allowed. For a genuine edge,
 # bypass once with `git commit --no-verify`.
 set -uf   # -f: keep the '*' patterns literal during word-splitting
+dir=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=../lib/common.sh
+. "$dir/lib/common.sh"
+guard_enabled block-bad-files auto || exit 0
 
 staged=$(git diff --cached --name-only --diff-filter=ACM)
 [ -n "$staged" ] || exit 0

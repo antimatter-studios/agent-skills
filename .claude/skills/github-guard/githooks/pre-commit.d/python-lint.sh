@@ -9,6 +9,10 @@
 # cannot block a commit that has nothing to do with it. The heavier gates
 # (type checking, the test suite) stay in CI.
 set -u
+dir=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=../lib/common.sh
+. "$dir/lib/common.sh"
+guard_enabled python-lint auto || exit 0
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 
 staged=$(git diff --cached --name-only --diff-filter=ACM -- '*.py')

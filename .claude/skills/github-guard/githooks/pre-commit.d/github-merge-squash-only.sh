@@ -6,6 +6,7 @@ set -u
 dir=$(cd "$(dirname "$0")/.." && pwd)   # the hooks dir
 # shellcheck source=../lib/common.sh
 . "$dir/lib/common.sh"
+guard_enabled merge-squash-only auto || exit 0
 
 slug=$(gg_repo_slug); [ -n "$slug" ] || exit 0
 gg_have_gh || { echo "github-guard: gh not installed/authed — skipping merge-settings check for $slug" >&2; exit 0; }

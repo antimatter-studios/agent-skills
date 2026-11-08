@@ -22,6 +22,7 @@ set -u
 dir=$(cd "$(dirname "$0")/.." && pwd)   # the hooks dir
 # shellcheck source=../lib/common.sh
 . "$dir/lib/common.sh"
+guard_enabled generated-normalise auto || exit 0
 
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 

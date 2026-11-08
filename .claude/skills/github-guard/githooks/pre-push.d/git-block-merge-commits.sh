@@ -6,6 +6,10 @@
 # on stdin. Checks the server's current refs so stale local tracking refs cannot
 # hide a merge. Hard block. Bypass only with --no-verify.
 set -u
+dir=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=../lib/common.sh
+. "$dir/lib/common.sh"
+guard_enabled block-merge-commits auto || exit 0
 status=0
 remote=${1:-origin}
 published=()

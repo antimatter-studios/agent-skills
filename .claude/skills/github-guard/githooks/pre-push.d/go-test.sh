@@ -16,6 +16,10 @@
 # Fails OPEN when the module cannot be built for an environmental reason — see
 # go-vet for the case that forced it.
 set -u
+dir=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=../lib/common.sh
+. "$dir/lib/common.sh"
+guard_enabled go-test auto || exit 0
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 [ -f "$root/go.mod" ] || exit 0
 command -v go >/dev/null 2>&1 || exit 0
