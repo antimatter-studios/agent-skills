@@ -9,6 +9,10 @@
 # don't manage), so the push is the enforcement point — a tag only matters once
 # it is shared. Annotated tags are peeled to their commit before the check.
 set -u
+dir=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=../lib/common.sh
+. "$dir/lib/common.sh"
+guard_enabled tags-on-main auto || exit 0
 
 # The remote being pushed to is the hook's first arg; resolve the default
 # branch against THAT remote rather than a hardcoded "origin", so pushing a

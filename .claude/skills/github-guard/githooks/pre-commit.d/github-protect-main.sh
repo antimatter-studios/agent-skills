@@ -7,6 +7,7 @@ set -u
 dir=$(cd "$(dirname "$0")/.." && pwd)
 # shellcheck source=../lib/common.sh
 . "$dir/lib/common.sh"
+guard_enabled protect-main auto || exit 0
 
 slug=$(gg_repo_slug); [ -n "$slug" ] || exit 0
 gg_have_gh || { echo "github-guard: gh not installed/authed — skipping branch-protection check for $slug" >&2; exit 0; }

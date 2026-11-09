@@ -13,6 +13,10 @@
 # The escape is keyed on the error go itself prints for an unresolvable embed,
 # so it cannot be mistaken for a real finding.
 set -u
+dir=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=../lib/common.sh
+. "$dir/lib/common.sh"
+guard_enabled go-vet auto || exit 0
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 [ -f "$root/go.mod" ] || exit 0
 command -v go >/dev/null 2>&1 || exit 0

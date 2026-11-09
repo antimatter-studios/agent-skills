@@ -6,8 +6,8 @@ then ask Claude to drop it into any project.
 
 Each git hook is a thin **dispatcher** that runs every executable script in its
 `<hook>.d/` directory, in order. A guard is a single-purpose script you drop in
-or delete. Add behaviour by adding a file; remove misbehaving behaviour by
-deleting it. Nothing monolithic.
+or disable through `.github-guard`. Add behaviour by adding a file; switch
+individual guards off without removing them. Nothing monolithic.
 
 ```
 .git/hooks/                        # per-clone, OUTSIDE the working tree
@@ -99,6 +99,10 @@ so there is no parser to install):
 
 ```ini
 # .github-guard — declarations github-guard reads (see the skill's README)
+[guards]
+	push-up-to-date = true       # default: require a current base before pushing
+	block-merge-commits = true
+	no-push-to-main = auto       # retain its existing self-gating
 [checks]
 	required = CI                # repeat the key for more checks; `none` = require none
 	strict = false               # with a merge queue: don't require PRs to be up to date
@@ -109,6 +113,12 @@ so there is no parser to install):
 	generated = frontend/bindings  # machine output: whitespace tidied, never blocked
 ```
 
+- **`guards.<name>`** — `true` runs a guard, `false` skips it immediately, and
+  `auto` runs its existing self-gating. `true` does not bypass prerequisites or
+  relevance checks either: a Rust guard still needs a Cargo project, and a local
+  default-branch wall still needs to be armed. Each guard declares its default;
+  absent flags use that default. All existing guards default to `auto`, preserving
+  their behavior; `push-up-to-date` defaults to `true`.
 - **`checks.required`** — the status checks `github-protect-main` requires on the
   default branch. Overrides discovery exactly; `none` requires none; an empty
   or comment-only `[checks]` is ignored with a warning.
@@ -141,6 +151,24 @@ comment otherwise — `required = "C# build"`), and check the file with
 `git config -f .github-guard --list`. A file git cannot parse is never read as
 "nothing declared": protection falls back to discovery, auto-merge is left
 alone, and `git-block-private-paths` blocks until the file is fixed.
+
+Guard flags resolve in this order: `git config github-guard.guards.<name>`
+(per clone), `[guards]` in the working-tree `.github-guard`, then the guard's
+default. Invalid values or an unreadable declaration warn and use the default.
+Includes are never followed. These are local switches, not server policy;
+`checks.required`, `checks.strict`, `merge.auto` and `paths.*` remain settings.
+For example, `git config github-guard.guards.push-up-to-date false` opts out in
+one clone, or `[guards] push-up-to-date = false` opts out for the repository.
+
+### Push freshness
+
+`git-push-up-to-date` is **on by default**, independently of `checks.strict`.
+Before pushing a feature branch it fetches the default branch from the remote
+named by the push, then requires that fetched tip to be an ancestor of each
+pushed commit. A stale branch is refused with both SHAs and a fetch/rebase
+command. It checks the actual ref list, not the checked-out branch, and skips
+deletions, tags and default-branch targets. A failed fetch or unknown default
+branch warns and allows the push, so offline work is not blocked.
 
 > Upgrading from the old layout — one file per fact under `.github-guard/`
 > (or `.githooks/`) — means converting those files into this one; the guards no
@@ -222,6 +250,7 @@ avoided is gone anyway, since the installed copy is no longer a committed one.
 | `github-protect-main` | pre-commit | no (fail-open) | Protects the **default branch**: require a PR, enforced for admins, linear history, no force-push/deletion. Owner-only. A failed protection read writes nothing, and review settings it does not manage (dismiss-stale, code-owner reviews) are carried over. Where GitHub refuses (a private repo without a paid plan, 403) it arms the local walls below instead and stops there. |
 | `git-block-merge-commit` | pre-merge-commit | yes | Refuses to **create** a merge commit locally. |
 | `git-block-merge-commits` | pre-push | yes | Refuses to **push** a range containing a merge commit. |
+| `git-push-up-to-date` | pre-push | yes (fail-open offline) | **Default `true`**: fetches the push remote's default branch and refuses feature-branch commits that do not contain its tip. |
 | `git-block-bad-files` | pre-commit | yes | Refuses staged keys/certs, credential blobs, env files, OS junk, merge cruft. Conservative (no broad `*secret*`; `.env.example` allowed). |
 | `git-no-trailing-whitespace` | pre-commit | yes | Blocks staged changes that add trailing whitespace / space-before-tab. |
 | `git-block-tracked-hooks` | pre-commit | yes | Refuses every commit while `.githooks/` is tracked, whether or not the commit touches it: a committed hook runs whatever the last merged change put there. The guards belong in `.git/hooks`, per clone. The commit that deletes `.githooks/` is allowed. |
@@ -242,6 +271,39 @@ skip on repos you don't own or non-GitHub remotes; the path guards do nothing
 without a declaration; the walls around the default branch act only where
 GitHub cannot protect it. So the same set installs everywhere and each guard
 decides if it's relevant.
+
+The flag names and defaults for the complete payload are:
+
+| Guard | Flag name | Default |
+|---|---|---|
+| `generated-normalise` | `generated-normalise` | `auto` |
+| `git-block-bad-files` | `block-bad-files` | `auto` |
+| `git-block-large-files` | `block-large-files` | `auto` |
+| `git-block-private-paths` | `block-private-paths` | `auto` |
+| `git-block-tracked-hooks` | `block-tracked-hooks` | `auto` |
+| `git-no-commit-on-main` | `no-commit-on-main` | `auto` |
+| `git-no-trailing-whitespace` | `no-trailing-whitespace` | `auto` |
+| `github-auto-merge` | `auto-merge` | `auto` |
+| `github-merge-squash-only` | `merge-squash-only` | `auto` |
+| `github-protect-main` | `protect-main` | `auto` |
+| `go-fmt` | `go-fmt` | `auto` |
+| `go-vet` | `go-vet` | `auto` |
+| `js-fmt` | `js-fmt` | `auto` |
+| `python-fmt` | `python-fmt` | `auto` |
+| `python-lint` | `python-lint` | `auto` |
+| `rust-clippy` | `rust-clippy` | `auto` |
+| `rust-deps-pinned` | `rust-deps-pinned` | `auto` |
+| `rust-fmt` | `rust-fmt` | `auto` |
+| `git-block-merge-commit` | `block-merge-commit` | `auto` |
+| `git-block-merge-commits` | `block-merge-commits` | `auto` |
+| `git-changelog` | `changelog` | `auto` |
+| `git-no-push-to-main` | `no-push-to-main` | `auto` |
+| `git-push-up-to-date` | `push-up-to-date` | `true` |
+| `git-tags-on-main` | `tags-on-main` | `auto` |
+| `go-test` | `go-test` | `auto` (ships non-executable) |
+| `git-no-ff-main` | `no-ff-main` | `auto` (ships disarmed) |
+
+Flags do not arm a non-executable guard or install a missing dispatcher.
 
 ### Walls around the default branch (private repos without a paid plan)
 
@@ -279,7 +341,9 @@ Re-running the installer leaves it armed.
 
 - **Add:** drop a `<topic>-<name>.sh` (executable) into the right `<hook>.d/`.
 - **Remove:** delete it.
-- **Disable without deleting:** `chmod -x` it.
+- **Disable without deleting:** set its `[guards]` flag to `false`, or run
+  `git config github-guard.guards.<name> false` for one clone. `chmod -x` also
+  works; `true` does not override the executable bit.
 
 ### Knobs
 

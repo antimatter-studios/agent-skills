@@ -6,6 +6,10 @@
 # for genuinely large assets is .gitignore (e.g. *.img, *.qcow2) or Git LFS.
 # Override the limit with GITHUB_GUARD_MAX_FILE_MB. Bypass once: git commit --no-verify.
 set -u
+dir=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=../lib/common.sh
+. "$dir/lib/common.sh"
+guard_enabled block-large-files auto || exit 0
 max_mb=${GITHUB_GUARD_MAX_FILE_MB:-10}
 max_bytes=$(( max_mb * 1024 * 1024 ))
 

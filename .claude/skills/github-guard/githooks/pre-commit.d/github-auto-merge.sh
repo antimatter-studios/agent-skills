@@ -26,6 +26,7 @@ set -u
 dir=$(cd "$(dirname "$0")/.." && pwd)   # the hooks dir
 # shellcheck source=../lib/common.sh
 . "$dir/lib/common.sh"
+guard_enabled auto-merge auto || exit 0
 
 slug=$(gg_repo_slug); [ -n "$slug" ] || exit 0
 gg_have_gh || { echo "github-guard: gh not installed/authed — skipping auto-merge setting for $slug" >&2; exit 0; }

@@ -102,6 +102,11 @@ CI. Reinstall every clone so old hooks cannot continue writing from branches.
   commit locally.
 - **`git-block-merge-commits`** (pre-push) — hard-blocks pushing any range that
   contains a merge commit.
+- **`git-push-up-to-date`** (pre-push, default **on**) — fetches the push
+  remote's default branch and refuses any feature-branch commit that does not
+  contain its tip. Checks every pushed SHA, skipping deletions, tags and pushes
+  to the default branch. Unknown default or failed fetch warns and allows.
+  Refusal gives both SHAs and a fetch/rebase command; never merge to catch up.
 - **`git-block-bad-files`** (pre-commit) — refuses to commit staged keys/certs,
   credential blobs, env files, OS junk, and merge cruft. Conservative (no broad
   `*secret*` globs; `.env.example` etc. allowed).
@@ -196,6 +201,10 @@ git they already run under:
 
 ```ini
 # .github-guard — declarations github-guard reads (see the skill's README)
+[guards]
+	push-up-to-date = true       # default: on
+	block-merge-commits = true
+	no-push-to-main = auto
 [checks]
 	required = CI                # repeat the key for more checks; `none` = require none
 [merge]
@@ -207,11 +216,23 @@ git they already run under:
 
 | key | read from | read by |
 | --- | --- | --- |
+| `guards.<name>` | per-clone config, then working tree, then guard default | every guard, before doing work |
 | `checks.required` | the default branch, **on the server** | `github-protect-main` |
 | `checks.strict` | the default branch, **on the server** | `github-protect-main` |
 | `merge.auto` | the default branch, **on the server** | `github-auto-merge`, the auto-merge action |
 | `paths.private` | the working tree (or per-clone config) | `git-block-private-paths` |
 | `paths.generated` | the working tree (or per-clone config) | `generated-normalise` |
+
+Guard switches accept `true`, `false` or `auto`; `false` exits immediately,
+while `true` and `auto` retain the guard's prerequisites and relevance checks.
+Every existing guard defaults to `auto`, preserving current behavior;
+`push-up-to-date` defaults to `true`. Per-clone
+`git config github-guard.guards.<name> <value>` wins over `[guards]` in the
+file. Invalid values or unreadable declarations warn and keep the default.
+Flag names omit the `git-` or `github-` prefix; language guards keep theirs.
+The complete flag/default catalog is in [README.md](README.md#guards-it-ships).
+Flags do not change executable bits or arm the reference-transaction hook.
+Existing `checks.*`, `merge.auto` and `paths.*` keys remain settings, not switches.
 
 Syntax rules worth knowing, all git's own:
 

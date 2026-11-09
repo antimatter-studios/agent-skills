@@ -5,6 +5,10 @@
 # `diff --cached --check`, which only flags lines THIS commit adds, so
 # pre-existing whitespace in untouched lines never blocks your work.
 set -u
+dir=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=../lib/common.sh
+. "$dir/lib/common.sh"
+guard_enabled no-trailing-whitespace auto || exit 0
 
 if ! out=$(git diff --cached --check 2>&1); then
   echo "github-guard: staged changes introduce whitespace errors:" >&2
