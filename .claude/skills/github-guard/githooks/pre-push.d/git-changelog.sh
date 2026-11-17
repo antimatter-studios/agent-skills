@@ -10,6 +10,11 @@
 # It reads the *tagged commit's* files, so it checks what actually ships. Blocks
 # the push on violation. Self-gates: no version tag, or no changelog anywhere = no-op.
 #
+# A release-candidate tag (vN.N.N-rc<N>, such as v0.4.0-rc1) is not a release, so it is not
+# checked: its release is documented when the release is tagged, and the candidate carries no
+# notes of its own. Only that exact shape is skipped. A malformed one, v0.4.0-RC1 or v0.4.0-rc0,
+# is checked as a version tag and blocked for want of a section.
+#
 # Conventions: the README changelog section is a heading matching
 # changelog/release notes/recent changes/releases/history; version entries
 # inside it are deeper (e.g. `### v0.2.0`) sub-headings. Bypass: git push --no-verify.
@@ -106,6 +111,7 @@ while read -r local_ref local_sha _remote_ref _remote_sha; do
   printf '%s' "$local_sha" | grep -qE '^0+$' && continue              # tag deletion
 
   tag=${local_ref#refs/tags/}
+  gg_is_release_candidate "$tag" && continue                          # a candidate has no notes
   ver=${tag#v}
   ver_re=$(printf '%s' "$ver" | sed 's/\./\\./g')
 

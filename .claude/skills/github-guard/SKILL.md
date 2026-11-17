@@ -119,13 +119,25 @@ CI. Reinstall every clone so old hooks cannot continue writing from branches.
   release to be documented: a section for the tag in CHANGELOG.md and/or the
   README changelog section (≤10 versions in the README + a link to
   CHANGELOG.md). It checks the tagged commit's files; a tag whose tree has no
-  changelog convention is unaffected.
+  changelog convention is unaffected. A **release-candidate** tag
+  (`vN.N.N-rc<N>`, such as `v0.4.0-rc1`) is not checked at all: it is tagged, not
+  cut, and its release is documented when the release is tagged. Only that exact
+  shape is skipped; a look-alike (`v0.4.0-RC1`, `-rc0`, `-rc.1`) is checked as a
+  version tag and blocked for want of a section.
 - **`git-tags-on-main`** (pre-push) — hard-blocks pushing a tag whose target
   commit is not contained in the default branch (`main`); release tags must mark
   a commit that landed on main, never one stranded on a feature or pre-squash
   line. Purely local (ancestry check; peels annotated tags); fail-open only if
   `main` can't be resolved locally. Git has no `git tag` creation hook, so the
-  push is the enforcement point.
+  push is the enforcement point. **Exempt: a release-candidate tag**
+  (`vN.N.N-rc<N>`, such as `v0.4.0-rc1`): a candidate is tagged on any commit to
+  build and try a version before its pull request merges, so it is not on main
+  yet. Only final tags must be on main. The exemption is that exact shape and
+  nothing near it: `v0.4.0-RC1`, `-rc`, `-rc0`, `-rc.1` and `-hotfix` are still
+  blocked off main, which is the fail-closed direction. The shape is
+  `gg_is_release_candidate` in `lib/common.sh`, a copy of the one a project defines
+  in its own `tag-kind` script; a hook cannot call that script, because it would
+  run out of the working tree, which a branch can rewrite.
 - **`rust-fmt`** (pre-commit) — runs `cargo fmt` and re-stages the staged files;
   Cargo projects only (the root crate, or each crate in a subdirectory such as
   `runner/` when there is none at the root); never blocks (auto-fixes layout).
@@ -542,6 +554,12 @@ and does not block `tmpl/`.
   body. The action's wiring (its `$GITHUB_ACTION_PATH` lookup, inputs, output
   and that the failure is a failure) is exercised by CI, which is the only
   place a runner can use it.
+- `tests/release-candidate-tags.sh [githooks-dir]` — release candidates: `gg_is_release_candidate`
+  accepts `vN.N.N-rc<N>` and nothing near it (`-RC1`, `-rc`, `-rc0`, `-rc01`, `-rc.1`, `-rc1x`,
+  `-hotfix`, `~`); `git-tags-on-main` lets a candidate off main through (annotated and
+  lightweight) while a final tag, a non-semver tag and every look-alike stay blocked, tag by tag
+  in a mixed push; `git-changelog` asks a candidate for no section, and still refuses a final tag
+  or a look-alike that has none.
 - `tests/status-sh.sh [skill-dir]` — the four answers `status.sh` has to keep
   apart (current, older, local, missing), plus the exec bit, `core.hooksPath`,
   the stranded-in-tree-guard note, and the `.github-guard` file's state. Every case denies the neighbouring

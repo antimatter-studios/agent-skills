@@ -38,6 +38,20 @@ gg_repo_slug() {
   printf '%s' "$path"
 }
 
+# True only for a release-candidate tag: vN.N.N-rc<N>, the number without a leading zero
+# (v0.4.0-rc1, v0.4.0-rc12). Anything else is false, which is the SAFE answer: the guards that
+# ask treat a tag as a release unless it is exactly this shape, so v0.4.0-RC1, v0.4.0-rc,
+# v0.4.0-rc0, v0.4.0-rc.1, v0.4.0-hotfix and v0.4.0 itself are all still fully guarded.
+#
+# A candidate is tagged, not cut: it is a build to try before its release lands, so it may point at
+# any commit, and it carries no release notes. The projects that use it define the shape once in
+# their own scripts/tag-kind (captainsalvage) or bin/ci/tag-kind (inpace). A hook cannot call
+# that file: it would run out of the working tree, which a branch can rewrite, so this is a copy of
+# the one shape, and each project's tests hold the copy to its definition.
+gg_is_release_candidate() {
+  [[ "$1" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc[1-9][0-9]*$ ]]
+}
+
 # True if gh is installed and authenticated.
 gg_have_gh() { command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; }
 
