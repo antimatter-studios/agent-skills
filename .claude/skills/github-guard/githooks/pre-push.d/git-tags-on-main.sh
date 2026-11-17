@@ -8,6 +8,11 @@
 # Git has no hook for `git tag` creation (only reference-transaction, which we
 # don't manage), so the push is the enforcement point — a tag only matters once
 # it is shared. Annotated tags are peeled to their commit before the check.
+#
+# Exempt: a release-candidate tag, vN.N.N-rc<N> (v0.4.0-rc1). A candidate is tagged, not cut, as
+# a build to try BEFORE its release lands, so it points at a commit that is not on main, by
+# design. Only that exact shape is exempt: every other tag, a malformed one such as v0.4.0-RC1,
+# v0.4.0-rc or v0.4.0-rc0 included, is checked like a release and blocked off main.
 set -u
 dir=$(cd "$(dirname "$0")/.." && pwd)
 # shellcheck source=../lib/common.sh
@@ -42,6 +47,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   case "$local_ref" in refs/tags/*) ;; *) continue ;; esac
   # Tag deletion (local_sha all-zero): nothing to inspect.
   printf '%s' "$local_sha" | grep -qE '^0+$' && continue
+
+  # A candidate is a build to try before the release lands on main.
+  gg_is_release_candidate "${local_ref#refs/tags/}" && continue
 
   # Peel annotated/lightweight tag to the commit it ultimately points at. A tag
   # that doesn't peel to a commit (points at a tree/blob) can never be on the
