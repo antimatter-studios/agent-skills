@@ -13,6 +13,11 @@ can be). Each skill lives under `.claude/skills/<name>/` with a `SKILL.md`.
   into `~/.claude/skills/<name>/` so it works across all projects. Records a
   manifest + a registry under `~/.config/install-skill/` (per-skill source
   commit, install locations) so upgrades can detect drift.
+- **issue-consolidation** — turns a repository's sprawl of overlapping issues
+  and pull requests into a few replacement issues with numbered acceptance
+  criteria, one replacement branch per issue carrying every source commit, and
+  red/green evidence for each criterion. Publishes the whole batch before it
+  retires the originals as superseded (migration, not completion).
 - **dev-loop** — iterative development cycle built on a baseline test contract:
   capture every passing test by name before touching anything, then require that
   exact set to still pass after each change. Coverage floor, one concern per
